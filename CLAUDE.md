@@ -5,6 +5,14 @@
 Read this before writing code. It describes how this repo is built and the
 handful of rules that are expensive to get wrong.
 
+**Setting the project up is not here.** Which accounts to create, which keys go
+where, how to connect Clerk to Supabase and how to apply the schema are all in
+[README.md](README.md), step by step. This file assumes the app already runs —
+if a command here fails on a missing key or a permission error, the answer is in
+the README's troubleshooting table, not in this document. Keep the two in step:
+a change that alters what a newcomer must configure — a new required env var, a
+new dashboard setting, a new bucket — belongs in the README in the same commit.
+
 ## What this is
 
 An AI presentation generator. A user describes a deck; a pipeline of agents
