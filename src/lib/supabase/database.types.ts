@@ -1,0 +1,829 @@
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
+  }
+  public: {
+    Tables: {
+      agent_runs: {
+        Row: {
+          agent: string
+          attempt: number
+          completion_tokens: number | null
+          cost_usd: number | null
+          created_at: string
+          deck_id: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          input: Json
+          job_id: string
+          latency_ms: number | null
+          model: string | null
+          output: Json | null
+          prompt_tokens: number | null
+          slide_id: string | null
+          status: Database["public"]["Enums"]["run_status"]
+        }
+        Insert: {
+          agent: string
+          attempt?: number
+          completion_tokens?: number | null
+          cost_usd?: number | null
+          created_at?: string
+          deck_id: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          input?: Json
+          job_id: string
+          latency_ms?: number | null
+          model?: string | null
+          output?: Json | null
+          prompt_tokens?: number | null
+          slide_id?: string | null
+          status?: Database["public"]["Enums"]["run_status"]
+        }
+        Update: {
+          agent?: string
+          attempt?: number
+          completion_tokens?: number | null
+          cost_usd?: number | null
+          created_at?: string
+          deck_id?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          input?: Json
+          job_id?: string
+          latency_ms?: number | null
+          model?: string | null
+          output?: Json | null
+          prompt_tokens?: number | null
+          slide_id?: string | null
+          status?: Database["public"]["Enums"]["run_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_runs_deck_id_fkey"
+            columns: ["deck_id"]
+            isOneToOne: false
+            referencedRelation: "decks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_runs_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "generation_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_runs_slide_id_fkey"
+            columns: ["slide_id"]
+            isOneToOne: false
+            referencedRelation: "slides"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      deck_assets: {
+        Row: {
+          bucket: string
+          bytes: number | null
+          created_at: string
+          credit: Json
+          deck_id: string
+          external_url: string | null
+          height: number | null
+          id: string
+          kind: Database["public"]["Enums"]["asset_kind"]
+          prompt: string | null
+          provider_model: string | null
+          slide_id: string | null
+          source: Database["public"]["Enums"]["asset_source"]
+          storage_path: string | null
+          width: number | null
+        }
+        Insert: {
+          bucket?: string
+          bytes?: number | null
+          created_at?: string
+          credit?: Json
+          deck_id: string
+          external_url?: string | null
+          height?: number | null
+          id?: string
+          kind: Database["public"]["Enums"]["asset_kind"]
+          prompt?: string | null
+          provider_model?: string | null
+          slide_id?: string | null
+          source: Database["public"]["Enums"]["asset_source"]
+          storage_path?: string | null
+          width?: number | null
+        }
+        Update: {
+          bucket?: string
+          bytes?: number | null
+          created_at?: string
+          credit?: Json
+          deck_id?: string
+          external_url?: string | null
+          height?: number | null
+          id?: string
+          kind?: Database["public"]["Enums"]["asset_kind"]
+          prompt?: string | null
+          provider_model?: string | null
+          slide_id?: string | null
+          source?: Database["public"]["Enums"]["asset_source"]
+          storage_path?: string | null
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deck_assets_deck_id_fkey"
+            columns: ["deck_id"]
+            isOneToOne: false
+            referencedRelation: "decks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deck_assets_slide_id_fkey"
+            columns: ["slide_id"]
+            isOneToOne: false
+            referencedRelation: "slides"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      deck_drafts: {
+        Row: {
+          created_at: string
+          deck_id: string
+          messages: Json
+          owner_id: string
+          plan: Json
+          research: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          deck_id: string
+          messages?: Json
+          owner_id: string
+          plan: Json
+          research?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          deck_id?: string
+          messages?: Json
+          owner_id?: string
+          plan?: Json
+          research?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deck_drafts_deck_id_fkey"
+            columns: ["deck_id"]
+            isOneToOne: true
+            referencedRelation: "decks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      deck_exports: {
+        Row: {
+          bytes: number | null
+          created_at: string
+          deck_id: string
+          error: string | null
+          finished_at: string | null
+          format: Database["public"]["Enums"]["export_format"]
+          id: string
+          owner_id: string
+          status: Database["public"]["Enums"]["run_status"]
+          storage_path: string | null
+          updated_at: string
+        }
+        Insert: {
+          bytes?: number | null
+          created_at?: string
+          deck_id: string
+          error?: string | null
+          finished_at?: string | null
+          format: Database["public"]["Enums"]["export_format"]
+          id?: string
+          owner_id: string
+          status?: Database["public"]["Enums"]["run_status"]
+          storage_path?: string | null
+          updated_at?: string
+        }
+        Update: {
+          bytes?: number | null
+          created_at?: string
+          deck_id?: string
+          error?: string | null
+          finished_at?: string | null
+          format?: Database["public"]["Enums"]["export_format"]
+          id?: string
+          owner_id?: string
+          status?: Database["public"]["Enums"]["run_status"]
+          storage_path?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deck_exports_deck_id_fkey"
+            columns: ["deck_id"]
+            isOneToOne: false
+            referencedRelation: "decks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      deck_imports: {
+        Row: {
+          bytes: number | null
+          created_at: string
+          deck_id: string | null
+          detected: Json
+          error: string | null
+          finished_at: string | null
+          id: string
+          original_filename: string
+          owner_id: string
+          source_format: Database["public"]["Enums"]["import_format"]
+          status: Database["public"]["Enums"]["run_status"]
+          storage_path: string
+          updated_at: string
+        }
+        Insert: {
+          bytes?: number | null
+          created_at?: string
+          deck_id?: string | null
+          detected?: Json
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          original_filename: string
+          owner_id: string
+          source_format: Database["public"]["Enums"]["import_format"]
+          status?: Database["public"]["Enums"]["run_status"]
+          storage_path: string
+          updated_at?: string
+        }
+        Update: {
+          bytes?: number | null
+          created_at?: string
+          deck_id?: string | null
+          detected?: Json
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          original_filename?: string
+          owner_id?: string
+          source_format?: Database["public"]["Enums"]["import_format"]
+          status?: Database["public"]["Enums"]["run_status"]
+          storage_path?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deck_imports_deck_id_fkey"
+            columns: ["deck_id"]
+            isOneToOne: false
+            referencedRelation: "decks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      decks: {
+        Row: {
+          audience: string | null
+          board: string
+          created_at: string
+          grade_level: number | null
+          id: string
+          language: string
+          metadata: Json
+          owner_id: string
+          requested_slide_count: number | null
+          slide_count: number
+          source_prompt: string | null
+          status: Database["public"]["Enums"]["deck_status"]
+          style_spec: Json
+          subject: string | null
+          theme: Json
+          title: string
+          tone: string | null
+          topic: string | null
+          updated_at: string
+          visibility: Database["public"]["Enums"]["deck_visibility"]
+        }
+        Insert: {
+          audience?: string | null
+          board?: string
+          created_at?: string
+          grade_level?: number | null
+          id?: string
+          language?: string
+          metadata?: Json
+          owner_id: string
+          requested_slide_count?: number | null
+          slide_count?: number
+          source_prompt?: string | null
+          status?: Database["public"]["Enums"]["deck_status"]
+          style_spec?: Json
+          subject?: string | null
+          theme?: Json
+          title?: string
+          tone?: string | null
+          topic?: string | null
+          updated_at?: string
+          visibility?: Database["public"]["Enums"]["deck_visibility"]
+        }
+        Update: {
+          audience?: string | null
+          board?: string
+          created_at?: string
+          grade_level?: number | null
+          id?: string
+          language?: string
+          metadata?: Json
+          owner_id?: string
+          requested_slide_count?: number | null
+          slide_count?: number
+          source_prompt?: string | null
+          status?: Database["public"]["Enums"]["deck_status"]
+          style_spec?: Json
+          subject?: string | null
+          theme?: Json
+          title?: string
+          tone?: string | null
+          topic?: string | null
+          updated_at?: string
+          visibility?: Database["public"]["Enums"]["deck_visibility"]
+        }
+        Relationships: []
+      }
+      document_chunks: {
+        Row: {
+          chunk_index: number
+          content: string
+          created_at: string
+          deck_id: string | null
+          document_id: string
+          embedding: string | null
+          id: string
+          metadata: Json
+          owner_id: string
+          token_count: number | null
+        }
+        Insert: {
+          chunk_index: number
+          content: string
+          created_at?: string
+          deck_id?: string | null
+          document_id: string
+          embedding?: string | null
+          id?: string
+          metadata?: Json
+          owner_id: string
+          token_count?: number | null
+        }
+        Update: {
+          chunk_index?: number
+          content?: string
+          created_at?: string
+          deck_id?: string | null
+          document_id?: string
+          embedding?: string | null
+          id?: string
+          metadata?: Json
+          owner_id?: string
+          token_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_chunks_deck_id_fkey"
+            columns: ["deck_id"]
+            isOneToOne: false
+            referencedRelation: "decks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_chunks_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      documents: {
+        Row: {
+          content: string | null
+          created_at: string
+          deck_id: string | null
+          id: string
+          metadata: Json
+          owner_id: string
+          source_type: Database["public"]["Enums"]["document_source"]
+          source_url: string | null
+          storage_path: string | null
+          title: string | null
+          token_count: number | null
+          updated_at: string
+        }
+        Insert: {
+          content?: string | null
+          created_at?: string
+          deck_id?: string | null
+          id?: string
+          metadata?: Json
+          owner_id: string
+          source_type: Database["public"]["Enums"]["document_source"]
+          source_url?: string | null
+          storage_path?: string | null
+          title?: string | null
+          token_count?: number | null
+          updated_at?: string
+        }
+        Update: {
+          content?: string | null
+          created_at?: string
+          deck_id?: string | null
+          id?: string
+          metadata?: Json
+          owner_id?: string
+          source_type?: Database["public"]["Enums"]["document_source"]
+          source_url?: string | null
+          storage_path?: string | null
+          title?: string | null
+          token_count?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_deck_id_fkey"
+            columns: ["deck_id"]
+            isOneToOne: false
+            referencedRelation: "decks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      generation_jobs: {
+        Row: {
+          created_at: string
+          deck_id: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          input: Json
+          owner_id: string
+          progress: number
+          stage: string | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["run_status"]
+          total_cost_usd: number
+          total_tokens: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          deck_id: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          input?: Json
+          owner_id: string
+          progress?: number
+          stage?: string | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["run_status"]
+          total_cost_usd?: number
+          total_tokens?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          deck_id?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          input?: Json
+          owner_id?: string
+          progress?: number
+          stage?: string | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["run_status"]
+          total_cost_usd?: number
+          total_tokens?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generation_jobs_deck_id_fkey"
+            columns: ["deck_id"]
+            isOneToOne: false
+            referencedRelation: "decks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          id: string
+          onboarded_at: string | null
+          preferences: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          onboarded_at?: string | null
+          preferences?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          onboarded_at?: string | null
+          preferences?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      slides: {
+        Row: {
+          background_url: string | null
+          blocks: Json
+          created_at: string
+          deck_id: string
+          hero_image_url: string | null
+          id: string
+          image_prompt: string | null
+          layout: string
+          metadata: Json
+          position: number
+          speaker_notes: string | null
+          subtitle: string | null
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          background_url?: string | null
+          blocks?: Json
+          created_at?: string
+          deck_id: string
+          hero_image_url?: string | null
+          id?: string
+          image_prompt?: string | null
+          layout?: string
+          metadata?: Json
+          position: number
+          speaker_notes?: string | null
+          subtitle?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          background_url?: string | null
+          blocks?: Json
+          created_at?: string
+          deck_id?: string
+          hero_image_url?: string | null
+          id?: string
+          image_prompt?: string | null
+          layout?: string
+          metadata?: Json
+          position?: number
+          speaker_notes?: string | null
+          subtitle?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "slides_deck_id_fkey"
+            columns: ["deck_id"]
+            isOneToOne: false
+            referencedRelation: "decks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      clerk_user_id: { Args: never; Returns: string }
+      is_deck_owner: { Args: { p_deck_id: string }; Returns: boolean }
+      match_document_chunks: {
+        Args: {
+          filter_deck_id?: string
+          filter_document_ids?: string[]
+          match_count?: number
+          query_embedding: string
+          similarity_threshold?: number
+        }
+        Returns: {
+          content: string
+          document_id: string
+          id: string
+          metadata: Json
+          similarity: number
+        }[]
+      }
+      storage_deck_id: { Args: { p_name: string }; Returns: string }
+    }
+    Enums: {
+      asset_kind: "background" | "hero" | "icon" | "chart" | "upload" | "export"
+      asset_source: "generated" | "unsplash" | "upload" | "youtube" | "external"
+      deck_status:
+        | "draft"
+        | "generating"
+        | "ready"
+        | "failed"
+        | "archived"
+        | "awaiting_review"
+      deck_visibility: "private" | "unlisted" | "public"
+      document_source:
+        | "url"
+        | "pdf"
+        | "text"
+        | "youtube"
+        | "upload"
+        | "pptx"
+        | "docx"
+      export_format: "pptx" | "pdf" | "png_zip"
+      import_format: "pptx" | "ppt" | "pdf" | "docx" | "markdown" | "text"
+      run_status: "queued" | "running" | "succeeded" | "failed" | "cancelled"
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {
+      asset_kind: ["background", "hero", "icon", "chart", "upload", "export"],
+      asset_source: ["generated", "unsplash", "upload", "youtube", "external"],
+      deck_status: [
+        "draft",
+        "generating",
+        "ready",
+        "failed",
+        "archived",
+        "awaiting_review",
+      ],
+      deck_visibility: ["private", "unlisted", "public"],
+      document_source: [
+        "url",
+        "pdf",
+        "text",
+        "youtube",
+        "upload",
+        "pptx",
+        "docx",
+      ],
+      export_format: ["pptx", "pdf", "png_zip"],
+      import_format: ["pptx", "ppt", "pdf", "docx", "markdown", "text"],
+      run_status: ["queued", "running", "succeeded", "failed", "cancelled"],
+    },
+  },
+} as const

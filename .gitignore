@@ -39,3 +39,21 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Keep the template committed; real .env files stay ignored above.
+!.env.example
+
+# Claude Code's local state. `.claude/skills/*` are ABSOLUTE symlinks into
+# .agents/skills on this machine, so committing them would hand every other
+# clone a set of broken paths. The skills themselves are vendored in
+# .agents/skills and pinned by skills-lock.json, which is what a fresh clone
+# actually needs; the symlinks are recreated locally.
+/.claude
+
+# agent output: generated decks, slide renders, intermediate files
+/generated
+
+# source material for the RAG corpus (NCERT textbooks, etc.) — not build output,
+# but too large/variable to commit; keep the folder via Documents/README.md
+/Documents/*
+!/Documents/README.md

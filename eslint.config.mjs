@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Standalone dev utilities, run through tsx rather than the app bundler.
+    "scripts/**",
+    // Generated decks, renders and intermediate files.
+    "generated/**",
   ]),
 ]);
 

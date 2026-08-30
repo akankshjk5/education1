@@ -19,7 +19,10 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      // The agent pipeline lives outside src/ but is imported by the app's
+      // server code. Aliased so those imports do not become ../../../Agents.
+      "@agents/*": ["./Agents/*"]
     }
   },
   "include": [
@@ -30,5 +33,8 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  // scripts/ holds standalone dev utilities run through tsx, which resolves
+  // explicit .ts specifiers the app's bundler config rejects. They are not
+  // part of the app build.
+  "exclude": ["node_modules", "scripts"]
 }
