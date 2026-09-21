@@ -3,6 +3,7 @@
 import {
   CheckCircle2,
   Clapperboard,
+  CircleX,
   Download,
   ImageIcon,
   LoaderCircle,
@@ -196,6 +197,18 @@ function ResultPanel({ project, job, onCancel }: { project: VideoProject | null;
           // Generated CDN asset; dimensions are known by the worker, not Next.
           // eslint-disable-next-line @next/next/no-img-element
           <img src={project.image_url} alt={project.topic} className="aspect-video w-full object-contain" />
+        ) : project.status === 'cancelled' ? (
+          <TerminalState
+            icon={CircleX}
+            title="Generation cancelled"
+            description="This request will not continue processing."
+          />
+        ) : project.status === 'failed' ? (
+          <TerminalState
+            icon={CircleX}
+            title="Generation failed"
+            description="Start a new request when you are ready to try again."
+          />
         ) : (
           <div className="text-center">
             <LoaderCircle className="mx-auto h-9 w-9 animate-spin text-indigo-400" />
@@ -223,6 +236,24 @@ function ResultPanel({ project, job, onCancel }: { project: VideoProject | null;
         {project.error_message ? <p className="mt-4 text-xs text-red-300">{project.error_message}</p> : null}
       </div>
     </section>
+  );
+}
+
+function TerminalState({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: typeof CircleX;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="px-6 text-center">
+      <Icon className="mx-auto h-9 w-9 text-neutral-500" />
+      <p className="mt-3 text-sm font-medium">{title}</p>
+      <p className="mt-1 text-xs text-neutral-500">{description}</p>
+    </div>
   );
 }
 
