@@ -51,6 +51,8 @@ export const slideBlockSchema = z.object({
   items: z.array(z.string()).optional(),
   /** Public URL of the generated picture. Null when generation failed. */
   imageUrl: z.string().nullish(),
+  /** Optional generated motion version; the still remains the export/poster. */
+  videoUrl: z.string().url().nullish(),
   /** What the picture was asked to show. Useful as alt text. */
   imagePrompt: z.string().optional(),
   /**

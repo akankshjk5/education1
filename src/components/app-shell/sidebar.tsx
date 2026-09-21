@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Presentation, PanelLeftClose } from 'lucide-react';
+import { Clapperboard, Presentation, PanelLeftClose } from 'lucide-react';
 
 /**
  * The single sidebar: brand, sections, account.
@@ -11,7 +11,10 @@ import { Presentation, PanelLeftClose } from 'lucide-react';
  * and its table exist — not before, so nothing in this shell is a button that
  * does nothing.
  */
-const NAV_ITEMS = [{ href: '/app', label: 'Decks', icon: Presentation }] as const;
+const NAV_ITEMS = [
+  { href: '/app', label: 'Presentations', icon: Presentation },
+  { href: '/app/videos', label: 'Videos', icon: Clapperboard },
+] as const;
 
 export function Sidebar({
   onCollapse,
@@ -50,7 +53,7 @@ export function Sidebar({
 
       <nav aria-label="Sections" className="mt-4 flex flex-col gap-0.5">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href;
+          const active = href === '/app' ? pathname === '/app' : pathname.startsWith(href);
           return (
             <Link
               key={href}

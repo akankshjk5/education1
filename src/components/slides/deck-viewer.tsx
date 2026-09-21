@@ -298,6 +298,7 @@ export function DeckViewer({ view, deckId }: { view: DeckView; deckId?: string }
             {slide.speakerNotes}
           </p>
         ) : null}
+
       </div>
 
       {/* Presented from the edited slides, so an animation you have not saved

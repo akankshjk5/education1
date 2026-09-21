@@ -21,6 +21,8 @@ import type { Deck, Slide } from '@/lib/supabase/types';
 
 /** A slide plus the things around the canvas rather than on it. */
 export interface DeckViewSlide extends RenderableSlide {
+  id: string;
+  imagePrompt: string | null;
   speakerNotes: string | null;
 }
 
@@ -72,11 +74,13 @@ export function toDeckView(deck: Pick<Deck, 'style_spec'>, slides: Slide[]): Dec
     slides: [...slides]
       .sort((a, b) => a.position - b.position)
       .map((slide) => ({
+        id: slide.id,
         title: slide.title,
         subtitle: slide.subtitle,
         blocks: parseBlocks(slide.blocks),
         backgroundUrl: slide.background_url,
         backgroundDim: dimFrom(slide.metadata),
+        imagePrompt: slide.image_prompt,
         speakerNotes: slide.speaker_notes,
       })),
   };

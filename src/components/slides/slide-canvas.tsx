@@ -363,7 +363,20 @@ function Block({
     case 'image':
       // A dropped illustration renders as nothing rather than as a broken-image
       // icon: the .pptx it mirrors simply has no picture there either.
-      return block.imageUrl ? (
+      return block.videoUrl ? (
+        <video
+          data-element-id={elementId}
+          {...motion?.attrs}
+          src={block.videoUrl}
+          poster={block.imageUrl ?? undefined}
+          aria-label={block.imagePrompt ?? ''}
+          autoPlay
+          loop
+          muted
+          playsInline
+          style={{ ...frame, objectFit: 'cover', ...motion?.style }}
+        />
+      ) : block.imageUrl ? (
         <img
           data-element-id={elementId}
           {...motion?.attrs}
@@ -653,7 +666,20 @@ export function SlideCanvas({
       {/* `full-bleed`'s picture: a layer behind the grid, not a grid cell —
           the text sits ON it, rather than beside it in its own area. */}
       {floatEntries.map(({ block, elementId }) =>
-        block.imageUrl ? (
+        block.videoUrl ? (
+          <video
+            key={elementId}
+            data-element-id={elementId}
+            src={block.videoUrl}
+            poster={block.imageUrl ?? undefined}
+            aria-label={block.imagePrompt ?? ''}
+            autoPlay
+            loop
+            muted
+            playsInline
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        ) : block.imageUrl ? (
           <img
             key={elementId}
             data-element-id={elementId}

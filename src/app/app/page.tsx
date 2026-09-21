@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight, Presentation } from 'lucide-react';
 import Link from 'next/link';
 
 import { CreateDeckDialog } from '@/components/decks/create-deck-dialog';
+import { ProductSwitcher } from '@/components/app-shell/product-switcher';
 import { DeckCard } from '@/components/decks/deck-card';
 import { requireUserId } from '@/lib/auth/session';
 import { DECK_PAGE_SIZE, coverSlides, listDecks } from '@/lib/data/decks';
@@ -53,7 +54,8 @@ export default async function AppPage({ searchParams }: PageProps<'/app'>) {
 
   return (
     <div className="px-8 py-6">
-      <header className="flex items-center justify-between gap-4">
+      <ProductSwitcher />
+      <header className="mt-6 flex items-center justify-between gap-4">
         <h1 className="flex items-center gap-2.5 text-xl font-bold">
           <Presentation className="h-5 w-5" strokeWidth={2} />
           Decks

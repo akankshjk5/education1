@@ -309,6 +309,124 @@ export type Database = {
           },
         ]
       }
+      deck_media_jobs: {
+        Row: {
+          attempts: number
+          available_at: string
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          deck_id: string | null
+          error_code: string | null
+          error_message: string | null
+          heartbeat_at: string | null
+          id: string
+          kind: string
+          locked_at: string | null
+          max_attempts: number
+          negative_prompt: string
+          output_metadata: Json
+          output_url: string | null
+          owner_id: string
+          parameters: Json
+          profile: string
+          progress: number
+          prompt: string
+          slide_id: string | null
+          source_image_url: string | null
+          started_at: string | null
+          status: string
+          target_block: number | null
+          updated_at: string
+          video_project_id: string | null
+          worker_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          available_at?: string
+          cancel_requested_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          deck_id?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          heartbeat_at?: string | null
+          id?: string
+          kind: string
+          locked_at?: string | null
+          max_attempts?: number
+          negative_prompt?: string
+          output_metadata?: Json
+          output_url?: string | null
+          owner_id: string
+          parameters?: Json
+          profile: string
+          progress?: number
+          prompt: string
+          slide_id?: string | null
+          source_image_url?: string | null
+          started_at?: string | null
+          status?: string
+          target_block?: number | null
+          updated_at?: string
+          video_project_id?: string | null
+          worker_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          available_at?: string
+          cancel_requested_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          deck_id?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          heartbeat_at?: string | null
+          id?: string
+          kind?: string
+          locked_at?: string | null
+          max_attempts?: number
+          negative_prompt?: string
+          output_metadata?: Json
+          output_url?: string | null
+          owner_id?: string
+          parameters?: Json
+          profile?: string
+          progress?: number
+          prompt?: string
+          slide_id?: string | null
+          source_image_url?: string | null
+          started_at?: string | null
+          status?: string
+          target_block?: number | null
+          updated_at?: string
+          video_project_id?: string | null
+          worker_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deck_media_jobs_deck_id_fkey"
+            columns: ["deck_id"]
+            isOneToOne: false
+            referencedRelation: "decks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deck_media_jobs_slide_id_fkey"
+            columns: ["slide_id"]
+            isOneToOne: false
+            referencedRelation: "slides"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deck_media_jobs_video_project_id_fkey"
+            columns: ["video_project_id"]
+            isOneToOne: false
+            referencedRelation: "video_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       decks: {
         Row: {
           audience: string | null
@@ -544,23 +662,163 @@ export type Database = {
           },
         ]
       }
+      media_jobs: {
+        Row: {
+          attempts: number
+          available_at: string
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          heartbeat_at: string | null
+          id: string
+          kind: string
+          locked_at: string | null
+          max_attempts: number
+          negative_prompt: string
+          output_metadata: Json
+          output_url: string | null
+          parameters: Json
+          presentation_id: string | null
+          profile: string
+          progress: number
+          prompt: string
+          source_image_url: string | null
+          started_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          worker_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          available_at?: string
+          cancel_requested_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          heartbeat_at?: string | null
+          id?: string
+          kind: string
+          locked_at?: string | null
+          max_attempts?: number
+          negative_prompt?: string
+          output_metadata?: Json
+          output_url?: string | null
+          parameters?: Json
+          presentation_id?: string | null
+          profile: string
+          progress?: number
+          prompt: string
+          source_image_url?: string | null
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+          worker_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          available_at?: string
+          cancel_requested_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          heartbeat_at?: string | null
+          id?: string
+          kind?: string
+          locked_at?: string | null
+          max_attempts?: number
+          negative_prompt?: string
+          output_metadata?: Json
+          output_url?: string | null
+          parameters?: Json
+          presentation_id?: string | null
+          profile?: string
+          progress?: number
+          prompt?: string
+          source_image_url?: string | null
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+          worker_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "media_jobs_presentation_id_fkey"
+            columns: ["presentation_id"]
+            isOneToOne: false
+            referencedRelation: "presentations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      presentations: {
+        Row: {
+          blocks_json: Json
+          created_at: string
+          id: string
+          is_public: boolean
+          subject: string
+          theme: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          blocks_json?: Json
+          created_at?: string
+          id?: string
+          is_public?: boolean
+          subject?: string
+          theme?: string
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          blocks_json?: Json
+          created_at?: string
+          id?: string
+          is_public?: boolean
+          subject?: string
+          theme?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
+          board: string | null
+          class: string | null
           created_at: string
+          full_name: string | null
           id: string
           onboarded_at: string | null
           preferences: Json
           updated_at: string
         }
         Insert: {
+          board?: string | null
+          class?: string | null
           created_at?: string
+          full_name?: string | null
           id: string
           onboarded_at?: string | null
           preferences?: Json
           updated_at?: string
         }
         Update: {
+          board?: string | null
+          class?: string | null
           created_at?: string
+          full_name?: string | null
           id?: string
           onboarded_at?: string | null
           preferences?: Json
@@ -627,13 +885,239 @@ export type Database = {
           },
         ]
       }
+      video_projects: {
+        Row: {
+          class_level: number
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          image_job_id: string | null
+          image_prompt: string
+          image_url: string | null
+          owner_id: string
+          status: string
+          subject: string
+          topic: string
+          updated_at: string
+          video_job_id: string | null
+          video_prompt: string
+          video_url: string | null
+        }
+        Insert: {
+          class_level: number
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          image_job_id?: string | null
+          image_prompt: string
+          image_url?: string | null
+          owner_id: string
+          status?: string
+          subject: string
+          topic: string
+          updated_at?: string
+          video_job_id?: string | null
+          video_prompt: string
+          video_url?: string | null
+        }
+        Update: {
+          class_level?: number
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          image_job_id?: string | null
+          image_prompt?: string
+          image_url?: string | null
+          owner_id?: string
+          status?: string
+          subject?: string
+          topic?: string
+          updated_at?: string
+          video_job_id?: string | null
+          video_prompt?: string
+          video_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_projects_image_job_fkey"
+            columns: ["image_job_id"]
+            isOneToOne: false
+            referencedRelation: "deck_media_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_projects_video_job_fkey"
+            columns: ["video_job_id"]
+            isOneToOne: false
+            referencedRelation: "deck_media_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      claim_deck_media_job: {
+        Args: { p_worker_id: string }
+        Returns: {
+          attempts: number
+          available_at: string
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          deck_id: string | null
+          error_code: string | null
+          error_message: string | null
+          heartbeat_at: string | null
+          id: string
+          kind: string
+          locked_at: string | null
+          max_attempts: number
+          negative_prompt: string
+          output_metadata: Json
+          output_url: string | null
+          owner_id: string
+          parameters: Json
+          profile: string
+          progress: number
+          prompt: string
+          slide_id: string | null
+          source_image_url: string | null
+          started_at: string | null
+          status: string
+          target_block: number | null
+          updated_at: string
+          video_project_id: string | null
+          worker_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "deck_media_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_media_job: {
+        Args: { p_worker_id: string }
+        Returns: {
+          attempts: number
+          available_at: string
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          heartbeat_at: string | null
+          id: string
+          kind: string
+          locked_at: string | null
+          max_attempts: number
+          negative_prompt: string
+          output_metadata: Json
+          output_url: string | null
+          parameters: Json
+          presentation_id: string | null
+          profile: string
+          progress: number
+          prompt: string
+          source_image_url: string | null
+          started_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          worker_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "media_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       clerk_user_id: { Args: never; Returns: string }
+      complete_deck_media_job: {
+        Args: {
+          p_job_id: string
+          p_output_metadata?: Json
+          p_output_url: string
+          p_worker_id: string
+        }
+        Returns: boolean
+      }
+      complete_media_job: {
+        Args: {
+          p_job_id: string
+          p_output_metadata?: Json
+          p_output_url: string
+          p_worker_id: string
+        }
+        Returns: boolean
+      }
+      create_video_project: {
+        Args: { p_class_level: number; p_subject: string; p_topic: string }
+        Returns: {
+          class_level: number
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          image_job_id: string | null
+          image_prompt: string
+          image_url: string | null
+          owner_id: string
+          status: string
+          subject: string
+          topic: string
+          updated_at: string
+          video_job_id: string | null
+          video_prompt: string
+          video_url: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "video_projects"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      fail_deck_media_job: {
+        Args: {
+          p_error_code: string
+          p_error_message: string
+          p_job_id: string
+          p_retry_delay_seconds?: number
+          p_worker_id: string
+        }
+        Returns: boolean
+      }
+      fail_media_job: {
+        Args: {
+          p_error_code: string
+          p_error_message: string
+          p_job_id: string
+          p_retry_delay_seconds?: number
+          p_worker_id: string
+        }
+        Returns: boolean
+      }
+      heartbeat_deck_media_job: {
+        Args: { p_job_id: string; p_progress: number; p_worker_id: string }
+        Returns: boolean
+      }
+      heartbeat_media_job: {
+        Args: { p_job_id: string; p_progress: number; p_worker_id: string }
+        Returns: boolean
+      }
       is_deck_owner: { Args: { p_deck_id: string }; Returns: boolean }
+      is_video_project_owner: {
+        Args: { p_project_id: string }
+        Returns: boolean
+      }
       match_document_chunks: {
         Args: {
           filter_deck_id?: string
@@ -649,6 +1133,160 @@ export type Database = {
           metadata: Json
           similarity: number
         }[]
+      }
+      request_deck_media_job_cancel: {
+        Args: { p_job_id: string }
+        Returns: {
+          attempts: number
+          available_at: string
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          deck_id: string | null
+          error_code: string | null
+          error_message: string | null
+          heartbeat_at: string | null
+          id: string
+          kind: string
+          locked_at: string | null
+          max_attempts: number
+          negative_prompt: string
+          output_metadata: Json
+          output_url: string | null
+          owner_id: string
+          parameters: Json
+          profile: string
+          progress: number
+          prompt: string
+          slide_id: string | null
+          source_image_url: string | null
+          started_at: string | null
+          status: string
+          target_block: number | null
+          updated_at: string
+          video_project_id: string | null
+          worker_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "deck_media_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      request_media_job_cancel: {
+        Args: { p_job_id: string }
+        Returns: {
+          attempts: number
+          available_at: string
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          heartbeat_at: string | null
+          id: string
+          kind: string
+          locked_at: string | null
+          max_attempts: number
+          negative_prompt: string
+          output_metadata: Json
+          output_url: string | null
+          parameters: Json
+          presentation_id: string | null
+          profile: string
+          progress: number
+          prompt: string
+          source_image_url: string | null
+          started_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          worker_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "media_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      retry_deck_media_job: {
+        Args: { p_job_id: string }
+        Returns: {
+          attempts: number
+          available_at: string
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          deck_id: string | null
+          error_code: string | null
+          error_message: string | null
+          heartbeat_at: string | null
+          id: string
+          kind: string
+          locked_at: string | null
+          max_attempts: number
+          negative_prompt: string
+          output_metadata: Json
+          output_url: string | null
+          owner_id: string
+          parameters: Json
+          profile: string
+          progress: number
+          prompt: string
+          slide_id: string | null
+          source_image_url: string | null
+          started_at: string | null
+          status: string
+          target_block: number | null
+          updated_at: string
+          video_project_id: string | null
+          worker_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "deck_media_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      retry_media_job: {
+        Args: { p_job_id: string }
+        Returns: {
+          attempts: number
+          available_at: string
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          heartbeat_at: string | null
+          id: string
+          kind: string
+          locked_at: string | null
+          max_attempts: number
+          negative_prompt: string
+          output_metadata: Json
+          output_url: string | null
+          parameters: Json
+          presentation_id: string | null
+          profile: string
+          progress: number
+          prompt: string
+          source_image_url: string | null
+          started_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          worker_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "media_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       storage_deck_id: { Args: { p_name: string }; Returns: string }
     }
@@ -689,12 +1327,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -718,11 +1356,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -743,11 +1381,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -768,11 +1406,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -785,11 +1423,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
