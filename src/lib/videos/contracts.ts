@@ -10,10 +10,14 @@ export const VIDEO_SUBJECTS = [
   'Computer Science',
 ] as const;
 
+export const VIDEO_DURATIONS = [3, 5] as const;
+export type VideoDuration = (typeof VIDEO_DURATIONS)[number];
+
 export const CreateVideoProjectSchema = z.object({
   classLevel: z.number().int().min(1).max(12),
   subject: z.string().trim().min(2).max(100),
   topic: z.string().trim().min(3).max(300),
+  durationSeconds: z.union([z.literal(3), z.literal(5)]).default(3),
 });
 
 export const VideoProjectStatusSchema = z.enum([
@@ -30,6 +34,7 @@ export const VideoProjectSchema = z.object({
   class_level: z.number().int(),
   subject: z.string(),
   topic: z.string(),
+  duration_seconds: z.union([z.literal(3), z.literal(5)]),
   image_prompt: z.string(),
   video_prompt: z.string(),
   status: VideoProjectStatusSchema,

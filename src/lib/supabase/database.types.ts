@@ -662,6 +662,239 @@ export type Database = {
           },
         ]
       }
+      lesson_video_jobs: {
+        Row: {
+          attempts: number
+          available_at: string
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          heartbeat_at: string | null
+          id: string
+          kind: string
+          locked_at: string | null
+          max_attempts: number
+          negative_prompt: string
+          output_metadata: Json
+          output_url: string | null
+          owner_id: string
+          parameters: Json
+          profile: string
+          progress: number
+          project_id: string
+          prompt: string
+          scene_id: string | null
+          source_image_url: string | null
+          started_at: string | null
+          status: string
+          updated_at: string
+          worker_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          available_at?: string
+          cancel_requested_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          heartbeat_at?: string | null
+          id?: string
+          kind: string
+          locked_at?: string | null
+          max_attempts?: number
+          negative_prompt?: string
+          output_metadata?: Json
+          output_url?: string | null
+          owner_id: string
+          parameters?: Json
+          profile: string
+          progress?: number
+          project_id: string
+          prompt?: string
+          scene_id?: string | null
+          source_image_url?: string | null
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          worker_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          available_at?: string
+          cancel_requested_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          heartbeat_at?: string | null
+          id?: string
+          kind?: string
+          locked_at?: string | null
+          max_attempts?: number
+          negative_prompt?: string
+          output_metadata?: Json
+          output_url?: string | null
+          owner_id?: string
+          parameters?: Json
+          profile?: string
+          progress?: number
+          project_id?: string
+          prompt?: string
+          scene_id?: string | null
+          source_image_url?: string | null
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          worker_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lesson_video_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "lesson_video_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lesson_video_jobs_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "lesson_video_scenes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lesson_video_projects: {
+        Row: {
+          class_level: number
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          final_video_url: string | null
+          id: string
+          language_code: string
+          language_name: string
+          learning_objective: string
+          narration_duration_seconds: number | null
+          narration_text: string
+          narration_url: string | null
+          owner_id: string
+          status: string
+          subject: string
+          target_duration_seconds: number
+          title: string
+          topic: string
+          updated_at: string
+        }
+        Insert: {
+          class_level: number
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          final_video_url?: string | null
+          id?: string
+          language_code: string
+          language_name: string
+          learning_objective: string
+          narration_duration_seconds?: number | null
+          narration_text: string
+          narration_url?: string | null
+          owner_id: string
+          status?: string
+          subject: string
+          target_duration_seconds: number
+          title: string
+          topic: string
+          updated_at?: string
+        }
+        Update: {
+          class_level?: number
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          final_video_url?: string | null
+          id?: string
+          language_code?: string
+          language_name?: string
+          learning_objective?: string
+          narration_duration_seconds?: number | null
+          narration_text?: string
+          narration_url?: string | null
+          owner_id?: string
+          status?: string
+          subject?: string
+          target_duration_seconds?: number
+          title?: string
+          topic?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      lesson_video_scenes: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          duration_seconds: number
+          error_message: string | null
+          fact: string
+          id: string
+          image_prompt: string
+          image_url: string | null
+          narration: string
+          project_id: string
+          scene_index: number
+          status: string
+          updated_at: string
+          video_prompt: string
+          video_url: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          duration_seconds: number
+          error_message?: string | null
+          fact: string
+          id?: string
+          image_prompt: string
+          image_url?: string | null
+          narration: string
+          project_id: string
+          scene_index: number
+          status?: string
+          updated_at?: string
+          video_prompt: string
+          video_url?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          duration_seconds?: number
+          error_message?: string | null
+          fact?: string
+          id?: string
+          image_prompt?: string
+          image_url?: string | null
+          narration?: string
+          project_id?: string
+          scene_index?: number
+          status?: string
+          updated_at?: string
+          video_prompt?: string
+          video_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lesson_video_scenes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "lesson_video_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       media_jobs: {
         Row: {
           attempts: number
@@ -890,6 +1123,7 @@ export type Database = {
           class_level: number
           completed_at: string | null
           created_at: string
+          duration_seconds: number
           error_message: string | null
           id: string
           image_job_id: string | null
@@ -908,6 +1142,7 @@ export type Database = {
           class_level: number
           completed_at?: string | null
           created_at?: string
+          duration_seconds?: number
           error_message?: string | null
           id?: string
           image_job_id?: string | null
@@ -926,6 +1161,7 @@ export type Database = {
           class_level?: number
           completed_at?: string | null
           created_at?: string
+          duration_seconds?: number
           error_message?: string | null
           id?: string
           image_job_id?: string | null
@@ -962,6 +1198,36 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cancel_lesson_video_project: {
+        Args: { p_project_id: string }
+        Returns: {
+          class_level: number
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          final_video_url: string | null
+          id: string
+          language_code: string
+          language_name: string
+          learning_objective: string
+          narration_duration_seconds: number | null
+          narration_text: string
+          narration_url: string | null
+          owner_id: string
+          status: string
+          subject: string
+          target_duration_seconds: number
+          title: string
+          topic: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "lesson_video_projects"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       claim_deck_media_job: {
         Args: { p_worker_id: string }
         Returns: {
@@ -998,6 +1264,44 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "deck_media_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_lesson_video_job: {
+        Args: { p_worker_id: string }
+        Returns: {
+          attempts: number
+          available_at: string
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          heartbeat_at: string | null
+          id: string
+          kind: string
+          locked_at: string | null
+          max_attempts: number
+          negative_prompt: string
+          output_metadata: Json
+          output_url: string | null
+          owner_id: string
+          parameters: Json
+          profile: string
+          progress: number
+          project_id: string
+          prompt: string
+          scene_id: string | null
+          source_image_url: string | null
+          started_at: string | null
+          status: string
+          updated_at: string
+          worker_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "lesson_video_jobs"
           isOneToOne: false
           isSetofReturn: true
         }
@@ -1049,6 +1353,15 @@ export type Database = {
         }
         Returns: boolean
       }
+      complete_lesson_video_job: {
+        Args: {
+          p_job_id: string
+          p_output_metadata?: Json
+          p_output_url: string
+          p_worker_id: string
+        }
+        Returns: boolean
+      }
       complete_media_job: {
         Args: {
           p_job_id: string
@@ -1058,12 +1371,87 @@ export type Database = {
         }
         Returns: boolean
       }
+      create_lesson_video_project: {
+        Args: {
+          p_class_level: number
+          p_language_code: string
+          p_language_name: string
+          p_learning_objective: string
+          p_narration_text: string
+          p_scenes: Json
+          p_subject: string
+          p_target_duration_seconds: number
+          p_title: string
+          p_topic: string
+        }
+        Returns: {
+          class_level: number
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          final_video_url: string | null
+          id: string
+          language_code: string
+          language_name: string
+          learning_objective: string
+          narration_duration_seconds: number | null
+          narration_text: string
+          narration_url: string | null
+          owner_id: string
+          status: string
+          subject: string
+          target_duration_seconds: number
+          title: string
+          topic: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "lesson_video_projects"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       create_video_project: {
         Args: { p_class_level: number; p_subject: string; p_topic: string }
         Returns: {
           class_level: number
           completed_at: string | null
           created_at: string
+          duration_seconds: number
+          error_message: string | null
+          id: string
+          image_job_id: string | null
+          image_prompt: string
+          image_url: string | null
+          owner_id: string
+          status: string
+          subject: string
+          topic: string
+          updated_at: string
+          video_job_id: string | null
+          video_prompt: string
+          video_url: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "video_projects"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      create_video_project_v2: {
+        Args: {
+          p_class_level: number
+          p_duration_seconds?: number
+          p_subject: string
+          p_topic: string
+        }
+        Returns: {
+          class_level: number
+          completed_at: string | null
+          created_at: string
+          duration_seconds: number
           error_message: string | null
           id: string
           image_job_id: string | null
@@ -1095,6 +1483,20 @@ export type Database = {
         }
         Returns: boolean
       }
+      fail_lesson_video_job: {
+        Args: {
+          p_error_code: string
+          p_error_message: string
+          p_job_id: string
+          p_retry_delay_seconds?: number
+          p_worker_id: string
+        }
+        Returns: boolean
+      }
+      fail_lesson_video_setup: {
+        Args: { p_error_message: string; p_project_id: string }
+        Returns: boolean
+      }
       fail_media_job: {
         Args: {
           p_error_code: string
@@ -1109,11 +1511,23 @@ export type Database = {
         Args: { p_job_id: string; p_progress: number; p_worker_id: string }
         Returns: boolean
       }
+      heartbeat_lesson_video_job: {
+        Args: { p_job_id: string; p_progress: number; p_worker_id: string }
+        Returns: boolean
+      }
       heartbeat_media_job: {
         Args: { p_job_id: string; p_progress: number; p_worker_id: string }
         Returns: boolean
       }
       is_deck_owner: { Args: { p_deck_id: string }; Returns: boolean }
+      is_lesson_video_asset_owner: {
+        Args: { p_name: string }
+        Returns: boolean
+      }
+      is_lesson_video_project_owner: {
+        Args: { p_project_id: string }
+        Returns: boolean
+      }
       is_video_project_owner: {
         Args: { p_project_id: string }
         Returns: boolean
@@ -1284,6 +1698,40 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "media_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      set_lesson_video_narration: {
+        Args: {
+          p_narration_duration_seconds: number
+          p_narration_url: string
+          p_project_id: string
+        }
+        Returns: {
+          class_level: number
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          final_video_url: string | null
+          id: string
+          language_code: string
+          language_name: string
+          learning_objective: string
+          narration_duration_seconds: number | null
+          narration_text: string
+          narration_url: string | null
+          owner_id: string
+          status: string
+          subject: string
+          target_duration_seconds: number
+          title: string
+          topic: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "lesson_video_projects"
           isOneToOne: false
           isSetofReturn: true
         }

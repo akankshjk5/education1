@@ -1,3 +1,5 @@
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,6 +9,7 @@ from media_worker import (
     WorkerError,
     cleanup_job_files,
     history_output_paths,
+    lesson_filter_graph,
     replace_tokens,
     resolve_job_parameters,
     validate_output,
@@ -64,6 +67,60 @@ class WorkerContractTests(unittest.TestCase):
         self.assertIn("/storage/v1/object/video-assets/", calls[0][1])
         self.assertIn("/storage/v1/object/public/video-assets/", url)
 
+    def test_queue_routes_lesson_jobs_to_isolated_rpcs(self) -> None:
+        lesson_job = {"id": "job", "_queue": "lesson"}
+        deck_job = {"id": "job", "_queue": "deck"}
+        self.assertEqual(
+            QueueClient._rpc_name(lesson_job, "complete"),
+            "complete_lesson_video_job",
+        )
+        self.assertEqual(
+            QueueClient._rpc_name(deck_job, "complete"),
+            "complete_deck_media_job",
+        )
+
+    def test_lesson_filter_graph_stretches_and_concatenates_scenes(self) -> None:
+        scenes = [{"duration_seconds": 7.5} for _ in range(8)]
+        graph = lesson_filter_graph(scenes, [5.0] * 8, 60)
+        self.assertIn("[0:v]setpts=1.50000000*PTS", graph)
+        self.assertIn("concat=n=8:v=1:a=0[video]", graph)
+        self.assertIn("[8:a]aresample=48000,apad,atrim=duration=60", graph)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+    def test_ffmpeg_accepts_lesson_assembly_graph(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            clip = root / "clip.mp4"
+            narration = root / "narration.wav"
+            output = root / "lesson.mp4"
+            subprocess.run([
+                "ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+                "-i", "color=c=blue:s=832x480:r=16:d=0.5",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", str(clip),
+            ], check=True, timeout=30)
+            subprocess.run([
+                "ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+                "-i", "sine=frequency=440:sample_rate=48000:duration=4",
+                "-c:a", "pcm_s16le", str(narration),
+            ], check=True, timeout=30)
+            scenes = [{"duration_seconds": 0.5} for _ in range(8)]
+            graph = lesson_filter_graph(scenes, [0.5] * 8, 4)
+            command = ["ffmpeg", "-y", "-v", "error"]
+            for _ in scenes:
+                command.extend(["-i", str(clip)])
+            command.extend([
+                "-i", str(narration), "-filter_complex", graph,
+                "-map", "[video]", "-map", "[audio]", "-t", "4",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "16",
+                "-c:a", "aac", str(output),
+            ])
+            subprocess.run(command, check=True, timeout=60)
+            probe = subprocess.run([
+                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", str(output),
+            ], check=True, capture_output=True, text=True, timeout=30)
+            self.assertGreaterEqual(float(probe.stdout.strip()), 3.9)
+
     def test_recursive_token_replacement_preserves_numeric_types(self) -> None:
         workflow = {"1": {"inputs": {"text": "__PROMPT__", "seed": "__SEED__"}}}
         result = replace_tokens(workflow, {"__PROMPT__": "hello", "__SEED__": 42})
@@ -87,7 +144,7 @@ class WorkerContractTests(unittest.TestCase):
         self.assertEqual(wan_frame_count(5, 16), 81)
         self.assertEqual(wan_frame_count(5, 24), 121)
 
-    def test_fast_profile_rejects_expensive_overrides(self) -> None:
+    def test_fast_profile_allows_only_supported_duration_and_seed(self) -> None:
         parameters = resolve_job_parameters({
             "profile": "video-fast",
             "parameters": {
@@ -103,9 +160,15 @@ class WorkerContractTests(unittest.TestCase):
             "height": 480,
             "durationSeconds": 3,
             "fps": 16,
-            "steps": 20,
+            "steps": 30,
             "seed": 123,
         })
+
+        five_seconds = resolve_job_parameters({
+            "profile": "video-fast",
+            "parameters": {"durationSeconds": 5},
+        })
+        self.assertEqual(five_seconds["durationSeconds"], 5)
 
     def test_cleanup_removes_only_the_current_jobs_files(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:

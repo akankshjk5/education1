@@ -169,6 +169,12 @@ export const serverEnv = {
   get genaiApiKey() {
     return required('GENAI_API_KEY', process.env.GENAI_API_KEY);
   },
+  get googleCloudProject() {
+    return required('GOOGLE_CLOUD_PROJECT', process.env.GOOGLE_CLOUD_PROJECT);
+  },
+  get googleCloudLocation() {
+    return process.env.GOOGLE_CLOUD_LOCATION ?? 'us-central1';
+  },
   get embedModel() {
     return process.env.GENAI_EMBED_MODEL ?? 'gemini-embedding-001';
   },

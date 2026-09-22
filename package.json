@@ -25,6 +25,7 @@
   "dependencies": {
     "@clerk/nextjs": "^7.8.2",
     "@clerk/ui": "^1.30.8",
+    "@google/genai": "^2.24.0",
     "@openrouter/agent": "^0.11.0",
     "@openrouter/sdk": "^1.2.80",
     "@supabase/ssr": "^0.12.5",

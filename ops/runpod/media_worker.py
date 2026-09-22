@@ -31,7 +31,7 @@ STATE: dict[str, Any] = {"status": "starting", "job_id": None, "last_error": Non
 PROFILE_PARAMETERS: dict[str, dict[str, int | float]] = {
     "image-fast": {"width": 1024, "height": 576, "steps": 8},
     "video-fast": {
-        "width": 832, "height": 480, "durationSeconds": 3, "fps": 16, "steps": 20,
+        "width": 832, "height": 480, "durationSeconds": 3, "fps": 16, "steps": 30,
     },
     "video-quality": {
         "width": 1280, "height": 720, "durationSeconds": 5, "fps": 16, "steps": 30,
@@ -94,29 +94,43 @@ class QueueClient:
         return self.client.request("POST", f"/rest/v1/rpc/{name}", payload)
 
     def claim(self, worker_id: str) -> dict[str, Any] | None:
+        result = self.rpc("claim_lesson_video_job", {"p_worker_id": worker_id})
+        if isinstance(result, list) and result:
+            result[0]["_queue"] = "lesson"
+            return result[0]
         result = self.rpc("claim_deck_media_job", {"p_worker_id": worker_id})
-        return result[0] if isinstance(result, list) and result else None
+        if isinstance(result, list) and result:
+            result[0]["_queue"] = "deck"
+            return result[0]
+        return None
 
-    def heartbeat(self, job_id: str, worker_id: str, progress: int) -> None:
+    @staticmethod
+    def _rpc_name(job: dict[str, Any], action: str) -> str:
+        if job.get("_queue") == "lesson":
+            return f"{action}_lesson_video_job"
+        return f"{action}_deck_media_job"
+
+    def heartbeat(self, job: dict[str, Any], worker_id: str, progress: int) -> None:
         self.rpc(
-            "heartbeat_deck_media_job",
-            {"p_job_id": job_id, "p_worker_id": worker_id, "p_progress": progress},
+            self._rpc_name(job, "heartbeat"),
+            {"p_job_id": str(job["id"]), "p_worker_id": worker_id, "p_progress": progress},
         )
 
-    def cancelled(self, job_id: str) -> bool:
+    def cancelled(self, job: dict[str, Any]) -> bool:
+        table = "lesson_video_jobs" if job.get("_queue") == "lesson" else "deck_media_jobs"
         query = urllib.parse.urlencode(
-            {"id": f"eq.{job_id}", "select": "cancel_requested_at", "limit": "1"}
+            {"id": f"eq.{job['id']}", "select": "cancel_requested_at", "limit": "1"}
         )
-        rows = self.client.request("GET", f"/rest/v1/deck_media_jobs?{query}")
+        rows = self.client.request("GET", f"/rest/v1/{table}?{query}")
         return bool(rows and rows[0].get("cancel_requested_at"))
 
     def complete(
-        self, job_id: str, worker_id: str, output_url: str, metadata: dict[str, Any]
+        self, job: dict[str, Any], worker_id: str, output_url: str, metadata: dict[str, Any]
     ) -> None:
         ok = self.rpc(
-            "complete_deck_media_job",
+            self._rpc_name(job, "complete"),
             {
-                "p_job_id": job_id,
+                "p_job_id": str(job["id"]),
                 "p_worker_id": worker_id,
                 "p_output_url": output_url,
                 "p_output_metadata": metadata,
@@ -125,11 +139,11 @@ class QueueClient:
         if not ok:
             raise WorkerError("stale_job", "Job ownership changed before completion")
 
-    def fail(self, job_id: str, worker_id: str, code: str, message: str) -> None:
+    def fail(self, job: dict[str, Any], worker_id: str, code: str, message: str) -> None:
         self.rpc(
-            "fail_deck_media_job",
+            self._rpc_name(job, "fail"),
             {
-                "p_job_id": job_id,
+                "p_job_id": str(job["id"]),
                 "p_worker_id": worker_id,
                 "p_error_code": code,
                 "p_error_message": message[:2000],
@@ -149,6 +163,25 @@ class QueueClient:
             timeout=300,
         )
         return f"{self.supabase_url}/storage/v1/object/public/{bucket}/{encoded_name}"
+
+    def lesson_bundle(self, project_id: str) -> dict[str, Any]:
+        project_query = urllib.parse.urlencode({
+            "id": f"eq.{project_id}",
+            "select": "id,narration_url,target_duration_seconds",
+            "limit": "1",
+        })
+        projects = self.client.request("GET", f"/rest/v1/lesson_video_projects?{project_query}")
+        if not projects or not projects[0].get("narration_url"):
+            raise WorkerError("missing_narration", "Lesson narration is not ready")
+        scene_query = urllib.parse.urlencode({
+            "project_id": f"eq.{project_id}",
+            "select": "scene_index,duration_seconds,video_url",
+            "order": "scene_index.asc",
+        })
+        scenes = self.client.request("GET", f"/rest/v1/lesson_video_scenes?{scene_query}")
+        if not scenes or any(not scene.get("video_url") for scene in scenes):
+            raise WorkerError("missing_scene", "One or more lesson clips are not ready")
+        return {"project": projects[0], "scenes": scenes}
 
 
 class ComfyClient:
@@ -251,7 +284,7 @@ def wan_frame_count(duration_seconds: float, fps: int) -> int:
 
 
 def resolve_job_parameters(job: dict[str, Any]) -> dict[str, int | float]:
-    """Apply fixed serving limits; only the inexpensive seed may be overridden."""
+    """Apply fixed serving limits and allow only explicitly supported options."""
     profile = str(job.get("profile", ""))
     defaults = PROFILE_PARAMETERS.get(profile)
     if defaults is None:
@@ -263,6 +296,13 @@ def resolve_job_parameters(job: dict[str, Any]) -> dict[str, int | float]:
             raise WorkerError("invalid_worker_config", "WAN_FAST_STEPS must be 20 or 30")
         result["steps"] = configured_steps
     requested = job.get("parameters") or {}
+    if profile == "video-fast" and "durationSeconds" in requested:
+        try:
+            requested_duration = int(requested["durationSeconds"])
+        except (TypeError, ValueError):
+            requested_duration = 0
+        if requested_duration in (3, 5):
+            result["durationSeconds"] = requested_duration
     if "seed" in requested:
         result["seed"] = int(requested["seed"])
     return result
@@ -378,6 +418,135 @@ def normalize_video(path: Path) -> Path:
     return normalized
 
 
+def download_lesson_asset(url: str, destination: Path, max_bytes: int = 250 * 1024 * 1024) -> Path:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise WorkerError("invalid_asset", "Lesson asset must use HTTPS")
+    if parsed.hostname.lower() not in allowed_source_hosts():
+        raise WorkerError("invalid_asset_host", "Lesson asset host is not allowlisted")
+    request = urllib.request.Request(url, headers={"User-Agent": "LuminaMediaWorker/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=300) as response:
+            data = response.read(max_bytes + 1)
+    except urllib.error.URLError as error:
+        raise WorkerError("asset_download_failed", str(error)) from error
+    if len(data) > max_bytes:
+        raise WorkerError("asset_too_large", "Lesson asset exceeds the download limit")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(data)
+    return destination
+
+
+def probe_video_duration(path: Path) -> float:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", str(path),
+            ],
+            check=True, capture_output=True, text=True, timeout=30,
+        )
+        duration = float(result.stdout.strip())
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        raise WorkerError("invalid_scene_video", f"Could not read scene duration: {error}") from error
+    if duration <= 0:
+        raise WorkerError("invalid_scene_video", "Scene video has no positive duration")
+    return duration
+
+
+def lesson_filter_graph(
+    scenes: list[dict[str, Any]], clip_durations: list[float], target_duration: int,
+) -> str:
+    if not scenes or len(scenes) != len(clip_durations):
+        raise WorkerError("invalid_scene_count", "Scene metadata and clip counts do not match")
+    filters: list[str] = []
+    video_labels: list[str] = []
+    for position, (scene, source_duration) in enumerate(zip(scenes, clip_durations)):
+        scene_duration = float(scene["duration_seconds"])
+        if source_duration <= 0 or scene_duration <= 0:
+            raise WorkerError("invalid_scene_duration", "Scene durations must be positive")
+        speed_ratio = scene_duration / source_duration
+        label = f"v{position}"
+        filters.append(
+            f"[{position}:v]setpts={speed_ratio:.8f}*PTS,fps=16,"
+            f"scale=832:480:force_original_aspect_ratio=decrease,"
+            f"pad=832:480:(ow-iw)/2:(oh-ih)/2:black,"
+            f"format=yuv420p,setsar=1,trim=duration={scene_duration:.3f},"
+            f"setpts=PTS-STARTPTS[{label}]"
+        )
+        video_labels.append(f"[{label}]")
+    filters.append(f"{''.join(video_labels)}concat=n={len(video_labels)}:v=1:a=0[video]")
+    filters.append(
+        f"[{len(scenes)}:a]aresample=48000,apad,"
+        f"atrim=duration={target_duration},asetpts=PTS-STARTPTS[audio]"
+    )
+    return ";".join(filters)
+
+
+def assemble_lesson_video(
+    job: dict[str, Any], queue: QueueClient, worker_id: str, output_dir: Path,
+) -> tuple[Path, dict[str, Any]]:
+    project_id = str(job["project_id"])
+    bundle = queue.lesson_bundle(project_id)
+    project = bundle["project"]
+    scenes = bundle["scenes"]
+    target_duration = int(project["target_duration_seconds"])
+    expected_count = 8 if target_duration == 60 else 12
+    if len(scenes) != expected_count:
+        raise WorkerError("invalid_scene_count", f"Expected {expected_count} scenes, got {len(scenes)}")
+
+    clip_paths: list[Path] = []
+    clip_durations: list[float] = []
+    for scene in scenes:
+        index = int(scene["scene_index"])
+        clip_path = output_dir / f"{job['id']}-scene-{index:02d}.mp4"
+        download_lesson_asset(str(scene["video_url"]), clip_path)
+        clip_paths.append(clip_path)
+        clip_durations.append(probe_video_duration(clip_path))
+    narration_path = output_dir / f"{job['id']}-narration.wav"
+    download_lesson_asset(str(project["narration_url"]), narration_path, 100 * 1024 * 1024)
+
+    filter_graph = lesson_filter_graph(scenes, clip_durations, target_duration)
+
+    output_path = output_dir / f"{job['id']}-lesson.mp4"
+    command = ["ffmpeg", "-y", "-v", "error"]
+    for clip_path in clip_paths:
+        command.extend(["-i", str(clip_path)])
+    command.extend([
+        "-i", str(narration_path), "-filter_complex", filter_graph,
+        "-map", "[video]", "-map", "[audio]", "-t", str(target_duration),
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-pix_fmt", "yuv420p", "-r", "16", "-movflags", "+faststart",
+        "-c:a", "aac", "-b:a", "128k", str(output_path),
+    ])
+    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    last_heartbeat = 0.0
+    while process.poll() is None:
+        if STOP.is_set() or queue.cancelled(job):
+            process.terminate()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=10)
+            raise WorkerError("cancelled", "Cancellation requested during lesson assembly")
+        now = time.monotonic()
+        if now - last_heartbeat >= 10:
+            queue.heartbeat(job, worker_id, 75)
+            last_heartbeat = now
+        time.sleep(1)
+    stderr = process.stderr.read() if process.stderr else ""
+    if process.returncode != 0:
+        raise WorkerError("lesson_assembly_failed", f"ffmpeg failed: {stderr[-1500:]}")
+
+    metadata = validate_output(output_path, "video")
+    if float(metadata.get("duration", 0)) < target_duration - 0.25:
+        raise WorkerError("lesson_too_short", "Assembled lesson is shorter than requested")
+    metadata.update({
+        "scene_count": len(scenes),
+        "target_duration_seconds": target_duration,
+        "source_clip_durations": [round(value, 3) for value in clip_durations],
+    })
+    return output_path, metadata
+
+
 def history_output_paths(history_item: dict[str, Any], output_root: Path) -> list[Path]:
     """Resolve ComfyUI output files without allowing paths outside output_root."""
     root = output_root.resolve()
@@ -451,20 +620,39 @@ def process_job(
     history: dict[str, Any] | None = None
     job_started = time.monotonic()
     try:
+        if job["kind"] == "assemble":
+            queue.heartbeat(job, worker_id, 5)
+            postprocess_started = time.monotonic()
+            path, metadata = assemble_lesson_video(job, queue, worker_id, output_dir)
+            postprocess_seconds = time.monotonic() - postprocess_started
+            queue.heartbeat(job, worker_id, 95)
+            upload_started = time.monotonic()
+            output_url = queue.upload(
+                "lesson-video-assets", str(job["project_id"]), job_id, path
+            )
+            metadata["latency_seconds"] = {
+                "generation": 0,
+                "postprocess": round(postprocess_seconds, 3),
+                "upload": round(time.monotonic() - upload_started, 3),
+                "total": round(time.monotonic() - job_started, 3),
+            }
+            queue.complete(job, worker_id, output_url, metadata)
+            return
+
         workflow = load_workflow(job, workflow_dir, comfy_input)
-        queue.heartbeat(job_id, worker_id, 5)
+        queue.heartbeat(job, worker_id, 5)
         prompt_id = comfy.submit(workflow)
         generation_started = time.monotonic()
         last_heartbeat = 0.0
 
         def tick() -> None:
             nonlocal last_heartbeat
-            if queue.cancelled(job_id):
+            if queue.cancelled(job):
                 comfy.interrupt()
                 raise WorkerError("cancelled", "Cancellation requested")
             now = time.monotonic()
             if now - last_heartbeat >= 10:
-                queue.heartbeat(job_id, worker_id, 25)
+                queue.heartbeat(job, worker_id, 25)
                 last_heartbeat = now
 
         history = comfy.wait(
@@ -473,19 +661,21 @@ def process_job(
             tick,
         )
         generation_seconds = time.monotonic() - generation_started
-        queue.heartbeat(job_id, worker_id, 85)
+        queue.heartbeat(job, worker_id, 85)
         postprocess_started = time.monotonic()
         path = comfy.download_output(history, output_dir / job_id)
         if job["kind"] == "video":
             path = normalize_video(path)
         metadata = validate_output(path, str(job["kind"]))
         postprocess_seconds = time.monotonic() - postprocess_started
-        queue.heartbeat(job_id, worker_id, 95)
+        queue.heartbeat(job, worker_id, 95)
         upload_started = time.monotonic()
         if job.get("deck_id"):
             bucket, parent_id = "deck-assets", str(job["deck_id"])
         elif job.get("video_project_id"):
             bucket, parent_id = "video-assets", str(job["video_project_id"])
+        elif job.get("project_id") and job.get("_queue") == "lesson":
+            bucket, parent_id = "lesson-video-assets", str(job["project_id"])
         else:
             raise WorkerError("invalid_job", "Media job has no deck or video project parent")
         output_url = queue.upload(bucket, parent_id, job_id, path)
@@ -497,7 +687,7 @@ def process_job(
             "total": round(time.monotonic() - job_started, 3),
         }
         metadata["serving_parameters"] = resolve_job_parameters(job)
-        queue.complete(job_id, worker_id, output_url, metadata)
+        queue.complete(job, worker_id, output_url, metadata)
     finally:
         comfy_paths = history_output_paths(history, comfy_output) if history else []
         cleanup_job_files(job_id, comfy_input, output_dir, comfy_paths)
@@ -551,12 +741,12 @@ def main() -> int:
                 STATE.update(status="idle", job_id=None, last_error=None)
             except WorkerError as error:
                 STATE.update(status="error", last_error=error.code)
-                queue.fail(str(job["id"]), worker_id, error.code, str(error))
+                queue.fail(job, worker_id, error.code, str(error))
                 print(f"job {job['id']} failed [{error.code}]: {error}", file=sys.stderr, flush=True)
                 STATE.update(status="idle", job_id=None)
             except Exception as error:  # final containment boundary for a long-running worker
                 STATE.update(status="error", last_error="worker_exception")
-                queue.fail(str(job["id"]), worker_id, "worker_exception", str(error))
+                queue.fail(job, worker_id, "worker_exception", str(error))
                 print(f"job {job['id']} failed [worker_exception]: {error}", file=sys.stderr, flush=True)
                 STATE.update(status="idle", job_id=None)
             if args.once:

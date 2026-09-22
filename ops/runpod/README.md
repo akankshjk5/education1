@@ -105,7 +105,11 @@ export WAN_FAST_STEPS=30
 bash ops/runpod/start_media_worker.sh
 ```
 
-The worker claims one `deck_media_jobs` row at a time, heartbeats, honors cancellation, validates outputs, and normalizes video to H.264 MP4. Deck-owned jobs upload to `deck-assets/<deck-id>/media/`; standalone Video projects upload to `video-assets/<project-id>/media/`. Completing the standalone Z-Image job causes Postgres to queue the Wan job transactionally, so the chain continues even if the browser closes. The worker health endpoint is `http://127.0.0.1:8090/health`.
+The worker checks the narrated-lesson queue first, then claims one `deck_media_jobs` row at a time. It heartbeats, honors cancellation, validates outputs, and normalizes video to H.264 MP4. Deck-owned jobs upload to `deck-assets/<deck-id>/media/`; legacy standalone Video projects upload to `video-assets/<project-id>/media/`; narrated lessons upload to `lesson-video-assets/<project-id>/media/`.
+
+For a narrated lesson, Postgres queues all topic-specific Z-Image scenes, then queues one five-second Wan animation per completed still. Once every animation and the server-generated narration are ready, it queues a `lesson-assemble` job. That job stretches each stable five-second clip to its 7.5-second timeline slot, concatenates the scenes, pads/trims the narration to the requested 60 or 90 seconds, and writes one H.264/AAC MP4. The durable chain continues if the browser closes or the Pod restarts. The worker health endpoint is `http://127.0.0.1:8090/health`.
+
+The image/video inference remains local on the Pod. Lesson planning and Indian-language speech are intentionally performed by the web server before GPU queuing, so the expensive GPU is not held while waiting on text/audio APIs. Never put those provider keys on the Pod or in browser-prefixed variables.
 
 The current fast target uses the official native-template value of 20 sampling
 steps. Keep the server-only `WAN_FAST_STEPS=30` for the first live test because

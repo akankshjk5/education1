@@ -13,7 +13,12 @@ import {
 import { useEffect, useState } from 'react';
 
 import type { MediaJob } from '@/lib/media/contracts';
-import { VIDEO_SUBJECTS, type VideoProject } from '@/lib/videos/contracts';
+import {
+  VIDEO_DURATIONS,
+  VIDEO_SUBJECTS,
+  type VideoDuration,
+  type VideoProject,
+} from '@/lib/videos/contracts';
 
 interface ProjectResponse {
   project: VideoProject;
@@ -30,10 +35,12 @@ export function VideoStudio({ initialProjects }: { initialProjects: VideoProject
   const [classLevel, setClassLevel] = useState(8);
   const [subject, setSubject] = useState('');
   const [topic, setTopic] = useState('');
+  const [durationSeconds, setDurationSeconds] = useState<VideoDuration>(3);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const running = selected?.status === 'generating_image' || selected?.status === 'generating_video';
+  const running = selected?.status === 'generating_image' ||
+    selected?.status === 'generating_video';
   const selectedId = selected?.id ?? null;
 
   useEffect(() => {
@@ -71,7 +78,12 @@ export function VideoStudio({ initialProjects }: { initialProjects: VideoProject
       const response = await fetch('/api/videos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ classLevel, subject, topic }),
+        body: JSON.stringify({
+          classLevel,
+          subject,
+          topic,
+          durationSeconds,
+        }),
       });
       const body = await response.json() as { project?: VideoProject; error?: string };
       if (!response.ok || !body.project) throw new Error(body.error ?? 'Could not start video.');
@@ -138,6 +150,20 @@ export function VideoStudio({ initialProjects }: { initialProjects: VideoProject
               className={`${fieldClasses} mt-1.5`}
             />
           </label>
+          <label className="mt-3 block text-sm font-medium">
+            Video length
+            <select
+              value={durationSeconds}
+              onChange={(event) => setDurationSeconds(Number(event.target.value) as VideoDuration)}
+              className={`${fieldClasses} mt-1.5`}
+            >
+              {VIDEO_DURATIONS.map((duration) => (
+                <option key={duration} value={duration}>
+                  {duration} seconds ({duration === 3 ? 'faster' : 'more detail'})
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             type="submit"
             disabled={submitting}
@@ -170,7 +196,7 @@ export function VideoStudio({ initialProjects }: { initialProjects: VideoProject
                   }`}
                 >
                   <span className="block truncate text-sm font-medium">{project.topic}</span>
-                  <span className="mt-0.5 block text-xs text-neutral-500">Class {project.class_level} · {project.subject} · {statusLabel(project.status)}</span>
+                  <span className="mt-0.5 block text-xs text-neutral-500">Class {project.class_level} · {project.subject} · {project.duration_seconds}s · {statusLabel(project.status)}</span>
                 </button>
               ))}
             </div>
@@ -192,7 +218,8 @@ function ResultPanel({ project, job, onCancel }: { project: VideoProject | null;
     );
   }
 
-  const running = project.status === 'generating_image' || project.status === 'generating_video';
+  const running = project.status === 'generating_image' ||
+    project.status === 'generating_video';
   return (
     <section className="overflow-hidden rounded-2xl border border-black/10 bg-neutral-950 text-white shadow-sm dark:border-white/10">
       <div className="flex min-h-[360px] items-center justify-center bg-black">
@@ -223,7 +250,7 @@ function ResultPanel({ project, job, onCancel }: { project: VideoProject | null;
       </div>
       <div className="p-5">
         <div className="flex items-start justify-between gap-4">
-          <div><h2 className="font-semibold">{project.topic}</h2><p className="mt-1 text-xs text-neutral-400">Class {project.class_level} · {project.subject}</p></div>
+          <div><h2 className="font-semibold">{project.topic}</h2><p className="mt-1 text-xs text-neutral-400">Class {project.class_level} · {project.subject} · {project.duration_seconds} seconds</p></div>
           {project.video_url ? (
             <a href={project.video_url} download className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-neutral-950 hover:bg-neutral-200"><Download className="h-3.5 w-3.5" />Download</a>
           ) : null}
