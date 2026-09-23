@@ -9,7 +9,11 @@ import {
 } from '@/lib/videos/lesson-contracts';
 import { videoLanguage } from '@/lib/videos/languages';
 import { synthesizeNarration } from '@/lib/videos/narration';
-import { narrationFromPlan, planLesson } from '@/lib/videos/planner';
+import {
+  narrationFromPlan,
+  planLesson,
+  scenesWithSharedVisualContext,
+} from '@/lib/videos/planner';
 
 export const maxDuration = 120;
 
@@ -40,7 +44,7 @@ export async function POST(request: Request) {
         p_language_name: language.label,
         p_learning_objective: plan.learningObjective,
         p_narration_text: narrationText,
-        p_scenes: plan.scenes,
+        p_scenes: scenesWithSharedVisualContext(plan),
         p_subject: input.subject,
         p_target_duration_seconds: input.targetDurationSeconds,
         p_title: plan.title,
