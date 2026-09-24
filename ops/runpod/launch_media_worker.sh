@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${MEDIA_WORKER_ENV_FILE:-/root/lumina-worker.env}"
+ENV_FILE="${MEDIA_WORKER_ENV_FILE:-/root/lumina-media-worker.env}"
 
 [[ -r "${ENV_FILE}" ]] || {
   echo "Worker environment file is not readable: ${ENV_FILE}" >&2
