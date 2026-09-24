@@ -86,6 +86,11 @@ class WorkerContractTests(unittest.TestCase):
         self.assertIn("concat=n=8:v=1:a=0[video]", graph)
         self.assertIn("[8:a]aresample=48000,apad,atrim=duration=60", graph)
 
+    def test_lesson_filter_graph_fits_long_narration_without_truncating_speech(self) -> None:
+        scenes = [{"duration_seconds": 7.5} for _ in range(8)]
+        graph = lesson_filter_graph(scenes, [5.0] * 8, 60, 72.0)
+        self.assertIn("[8:a]aresample=48000,atempo=1.22033898,apad", graph)
+
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
     def test_ffmpeg_accepts_lesson_assembly_graph(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

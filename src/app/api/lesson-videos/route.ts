@@ -10,12 +10,13 @@ import {
 import { videoLanguage } from '@/lib/videos/languages';
 import { synthesizeNarration } from '@/lib/videos/narration';
 import {
+  adjustNarrationToFit,
   narrationFromPlan,
   planLesson,
   scenesWithSharedVisualContext,
 } from '@/lib/videos/planner';
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   let projectId: string | null = null;
@@ -23,18 +24,28 @@ export async function POST(request: Request) {
     await requireUserIdOrThrow();
     const input = CreateLessonVideoSchema.parse(await request.json());
     const language = videoLanguage(input.languageCode);
-    const plan = await planLesson(input);
-    const narrationText = narrationFromPlan(plan);
-    const narration = await synthesizeNarration(narrationText, input.languageCode);
-    if (narration.durationSeconds > input.targetDurationSeconds - 1) {
-      throw new Error(
-        `Narration is ${narration.durationSeconds.toFixed(1)} seconds, which is too long for this video.`,
+    let plan = await planLesson(input);
+    let narrationText = narrationFromPlan(plan);
+    let narration = await synthesizeNarration(narrationText, input.languageCode);
+    const minimumNarrationSeconds = input.targetDurationSeconds * 0.6;
+    const maximumNarrationSeconds = input.targetDurationSeconds - 2;
+    for (let revision = 0; revision < 2; revision += 1) {
+      if (
+        narration.durationSeconds >= minimumNarrationSeconds
+        && narration.durationSeconds <= maximumNarrationSeconds
+      ) break;
+      plan = await adjustNarrationToFit(plan, {
+        languageCode: input.languageCode,
+        measuredDurationSeconds: narration.durationSeconds,
+        targetDurationSeconds: input.targetDurationSeconds,
+      });
+      narrationText = narrationFromPlan(plan);
+      narration = await synthesizeNarration(
+        narrationText,
+        input.languageCode,
+        revision === 1 ? 'brisk' : 'natural',
       );
     }
-    if (narration.durationSeconds < input.targetDurationSeconds * 0.45) {
-      throw new Error('Narration was unexpectedly short; generate the lesson again.');
-    }
-
     const supabase = await createClient();
     const { data: created, error: createError } = await supabase.rpc(
       'create_lesson_video_project',

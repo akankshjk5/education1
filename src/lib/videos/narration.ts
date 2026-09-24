@@ -33,6 +33,7 @@ export interface NarrationAudio {
 export async function synthesizeNarration(
   transcript: string,
   languageCode: VideoLanguageCode,
+  pace: 'natural' | 'brisk' = 'natural',
 ): Promise<NarrationAudio> {
   const language = videoLanguage(languageCode);
   const voice = process.env.GEMINI_TTS_VOICE?.trim() || 'Kore';
@@ -55,7 +56,7 @@ export async function synthesizeNarration(
 
   const response = await client.models.generateContent({
     model,
-    contents: `Synthesize speech only. Do not read these directions aloud. Use a warm, clear, knowledgeable Indian educator voice. Speak naturally in ${language.promptName}, with accurate pronunciation and a steady pace suitable for Class learning. Do not add, translate, summarize, or omit any words.\n\nTRANSCRIPT BEGINS:\n${transcript}\nTRANSCRIPT ENDS.`,
+    contents: `Synthesize speech only. Do not read these directions aloud. Use a warm, clear, knowledgeable Indian educator voice. Speak only in ${language.promptName}, using accurate pronunciation. Use a ${pace === 'brisk' ? 'brisk but clearly understandable' : 'steady, natural'} pace suitable for classroom learning. Do not add, translate, summarize, repeat, or omit any words.\n\nTRANSCRIPT BEGINS:\n${transcript}\nTRANSCRIPT ENDS.`,
     config: {
       responseModalities: [Modality.AUDIO],
       speechConfig: {

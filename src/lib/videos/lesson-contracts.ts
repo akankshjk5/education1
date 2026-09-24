@@ -82,4 +82,9 @@ export interface LessonVideoDetail {
   project: LessonVideoProject;
   scenes: LessonVideoScene[];
   progress: number;
+  etaSeconds: number | null;
+  sceneProgress: Record<string, number>;
+  completedClips: number;
+  totalClips: number;
+  activeSceneIndex: number | null;
 }

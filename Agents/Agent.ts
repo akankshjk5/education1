@@ -138,6 +138,10 @@ export interface CallOptions {
   effort?: ReasoningEffort;
   /** Set to run the call with live web search attached. */
   search?: WebSearchOptions;
+  /** Bounds one provider request without changing the global SDK timeout. */
+  requestTimeoutMs?: number;
+  /** Overrides the default transient retry count for latency-sensitive stages. */
+  maxTransientRetries?: number;
 }
 
 /**
@@ -203,6 +207,7 @@ async function callModel(messages: ChatMessage[], options: CallOptions): Promise
   const { instructions, input } = splitMessages(messages);
   const resolvedModel = options.model ?? serverEnv.openRouterModel;
   const effort = options.effort ?? serverEnv.reasoningEffort;
+  const maxTransientRetries = options.maxTransientRetries ?? RETRY_DELAYS_MS.length;
   const startedAt = Date.now();
 
   for (let attempt = 0; ; attempt++) {
@@ -229,7 +234,7 @@ async function callModel(messages: ChatMessage[], options: CallOptions): Promise
               ],
             }
           : {}),
-      });
+      }, options.requestTimeoutMs ? { timeoutMs: options.requestTimeoutMs } : undefined);
 
       // Started before the text is awaited so the thinking appears in the log
       // while the answer is still being written, not in a burst after it.
@@ -252,12 +257,13 @@ async function callModel(messages: ChatMessage[], options: CallOptions): Promise
     } catch (error) {
       const { message, status } = describeFailure(error, resolvedModel);
 
-      if (attempt >= RETRY_DELAYS_MS.length || !isTransient(status)) {
+      if (attempt >= maxTransientRetries || !isTransient(status)) {
         throw new AgentError(message, status ? `PROVIDER_${status}` : 'PROVIDER_ERROR', 'model');
       }
 
-      console.warn(`[model] ${message} — retrying in ${RETRY_DELAYS_MS[attempt]}ms`);
-      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+      const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
+      console.warn(`[model] ${message} — retrying in ${delay}ms`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 }
@@ -319,9 +325,24 @@ export async function generateStructured<T>(
     effort?: ReasoningEffort;
     /** Attaches live web search to the call. */
     search?: WebSearchOptions;
+    /** Bounds each provider request for latency-sensitive stages. */
+    requestTimeoutMs?: number;
+    /** Overrides transport retries; schema-correction retries remain separate. */
+    maxTransientRetries?: number;
   },
 ): Promise<T> {
-  const { systemPrompt, userPrompt, schema, stage, model, images, effort, search } = options;
+  const {
+    systemPrompt,
+    userPrompt,
+    schema,
+    stage,
+    model,
+    images,
+    effort,
+    search,
+    requestTimeoutMs,
+    maxTransientRetries,
+  } = options;
 
   const jsonSchema = describeSchema(schema as z.ZodType<unknown>);
 
@@ -361,7 +382,14 @@ export async function generateStructured<T>(
     let call: ChatResult;
     const startedAt = Date.now();
     try {
-      call = await callModel(sent, { model, stage, effort, search });
+      call = await callModel(sent, {
+        model,
+        stage,
+        effort,
+        search,
+        requestTimeoutMs,
+        maxTransientRetries,
+      });
     } catch (error) {
       recordAgentRun({
         agent: stage,

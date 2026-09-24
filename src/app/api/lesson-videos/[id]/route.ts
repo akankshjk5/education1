@@ -7,6 +7,7 @@ import {
   LessonVideoProjectSchema,
   LessonVideoSceneSchema,
 } from '@/lib/videos/lesson-contracts';
+import { lessonProgressSnapshot } from '@/lib/videos/progress';
 
 const idSchema = z.string().uuid();
 
@@ -30,22 +31,18 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
         .order('scene_index'),
       supabase
         .from('lesson_video_jobs')
-        .select('status, progress')
+        .select('kind, scene_id, status, progress, started_at, output_metadata')
         .eq('project_id', id.data),
     ]);
     if (error || !project) return NextResponse.json({ error: 'Video not found.' }, { status: 404 });
 
-    const total = Math.max(1, (scenes?.length ?? 0) * 2 + 1);
-    const points = (jobs ?? []).reduce((sum, job) => {
-      if (job.status === 'succeeded') return sum + 100;
-      if (job.status === 'processing') return sum + job.progress;
-      return sum;
-    }, 0);
-    const progress = project.status === 'succeeded' ? 100 : Math.min(99, Math.round(points / total));
+    const parsedProject = LessonVideoProjectSchema.parse(project);
+    const parsedScenes = LessonVideoSceneSchema.array().parse(scenes ?? []);
+    const snapshot = lessonProgressSnapshot(parsedProject, parsedScenes, jobs ?? []);
     return NextResponse.json({
-      project: LessonVideoProjectSchema.parse(project),
-      scenes: LessonVideoSceneSchema.array().parse(scenes ?? []),
-      progress,
+      project: parsedProject,
+      scenes: parsedScenes,
+      ...snapshot,
     });
   } catch (error) {
     if (error instanceof Response) return error;

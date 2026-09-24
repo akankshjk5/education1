@@ -3,7 +3,11 @@ import 'server-only';
 import { z } from 'zod';
 
 import { serverEnv } from '@/lib/env';
-import { videoLanguage, type VideoLanguageCode } from '@/lib/videos/languages';
+import {
+  narrationUsesSelectedLanguage,
+  videoLanguage,
+  type VideoLanguageCode,
+} from '@/lib/videos/languages';
 
 const LessonSceneSchema = z.object({
   index: z.number().int().min(1).max(12),
@@ -32,6 +36,13 @@ export const LessonPlanSchema = z.object({
 
 export type LessonPlan = z.infer<typeof LessonPlanSchema>;
 
+const NarrationRevisionSchema = z.object({
+  scenes: z.array(z.object({
+    index: z.number().int().min(1).max(12),
+    narration: z.string().trim().min(5).max(500),
+  })).min(8).max(12),
+});
+
 export async function planLesson(input: {
   classLevel: number;
   subject: string;
@@ -53,16 +64,14 @@ export async function planLesson(input: {
         message: `Expected exactly ${sceneCount} scenes`,
       });
     }
-    if (
-      input.languageCode === 'en-IN'
-      && /[\u0900-\u0D7F]/u.test(
-        `${plan.title} ${plan.scenes.map((scene) => scene.narration).join(' ')}`,
-      )
-    ) {
+    if (!narrationUsesSelectedLanguage(
+      plan.scenes.map((scene) => scene.narration).join(' '),
+      input.languageCode,
+    )) {
       ctx.addIssue({
         code: 'custom',
         path: ['scenes'],
-        message: 'Indian English output must use English text, not an Indian-language script',
+        message: `Narration must use ${language.promptName} and its expected script`,
       });
     }
   });
@@ -102,7 +111,7 @@ Target duration: ${input.targetDurationSeconds} seconds
 The ${sceneCount} scene facts together must directly explain the topic at this class level.`,
   });
 
-  const plan = await generateStructured({
+  const verifyPlan = (withSearch: boolean) => generateStructured({
     stage: 'video-lesson-verifier',
     model: plannerModel,
     effort: 'low',
@@ -129,11 +138,115 @@ Subject: ${input.subject}
 Topic: ${input.topic}
 Narration language: ${language.label}
 Target duration: ${input.targetDurationSeconds} seconds`,
+    ...(withSearch ? {
+      search: {
+        engine: 'exa' as const,
+        maxResults: 3,
+        searchPrompt: `Verify stable, age-appropriate curriculum facts for Class ${input.classLevel} ${input.subject}: ${input.topic}`,
+      },
+      requestTimeoutMs: 60_000,
+      maxTransientRetries: 0,
+    } : {}),
   });
+
+  let plan: LessonPlan;
+  try {
+    plan = await verifyPlan(true);
+  } catch (error) {
+    console.warn(
+      '[video-lesson-verifier] grounded review unavailable; using bounded model-only review',
+      error instanceof Error ? error.message : String(error),
+    );
+    plan = await verifyPlan(false);
+  }
 
   return {
     ...plan,
     title: input.languageCode === 'en-IN' ? input.topic.slice(0, 200) : plan.title,
+  };
+}
+
+export async function adjustNarrationToFit(
+  plan: LessonPlan,
+  input: {
+    languageCode: VideoLanguageCode;
+    targetDurationSeconds: 60 | 90;
+    measuredDurationSeconds: number;
+  },
+): Promise<LessonPlan> {
+  const { generateStructured } = await import('../../../Agents/Agent');
+  const language = videoLanguage(input.languageCode);
+  const currentText = narrationFromPlan(plan);
+  const desiredDuration = input.targetDurationSeconds - 4;
+  const ratio = desiredDuration / Math.max(1, input.measuredDurationSeconds);
+  const targetCharacters = Math.max(
+    plan.scenes.length * 12,
+    Math.floor(currentText.length * ratio * (ratio < 1 ? 0.9 : 0.98)),
+  );
+  const direction = ratio < 1 ? 'shorten' : 'expand';
+  const revisionSchema = NarrationRevisionSchema.superRefine((revision, ctx) => {
+    if (revision.scenes.length !== plan.scenes.length) {
+      ctx.addIssue({ code: 'custom', path: ['scenes'], message: 'Scene count changed' });
+    }
+    revision.scenes.forEach((scene, position) => {
+      if (scene.index !== position + 1) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['scenes', position, 'index'],
+          message: `Expected scene index ${position + 1}`,
+        });
+      }
+    });
+    const narration = revision.scenes.map((scene) => scene.narration).join(' ');
+    if (direction === 'shorten' && narration.length > targetCharacters) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['scenes'],
+        message: `Combined narration must be at most ${targetCharacters} characters`,
+      });
+    }
+    if (!narrationUsesSelectedLanguage(narration, input.languageCode)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['scenes'],
+        message: `Narration must use ${language.promptName} and its expected script`,
+      });
+    }
+  });
+
+  const revision = await generateStructured({
+    stage: 'video-narration-duration-editor',
+    model: serverEnv.modelForSkill('video-planner') ?? serverEnv.openRouterModel,
+    effort: 'low',
+    schema: revisionSchema,
+    systemPrompt: `You are a precise educational narration editor.
+
+${direction === 'shorten' ? 'Shorten' : 'Expand'} the narration so synthesized speech fits a ${input.targetDurationSeconds}-second lesson. Keep exactly one narration entry per scene and preserve the meaning of its supplied audited fact.
+
+Rules:
+- Write only in ${language.promptName}, using its natural script. Do not translate into another language.
+- Keep the narration conversational, factual, and age-appropriate. Never add a fact, number, name, example, claim, or conclusion that is absent from the audited facts.
+- Each scene should be one concise sentence that can be spoken clearly in its 7.5-second slot.
+- Avoid introductions, greetings, repetition, filler, calls to action, and grand claims.
+- The combined narration must be ${direction === 'shorten' ? `no more than ${targetCharacters}` : `about ${targetCharacters}`} characters.
+- Return only scene indexes and revised narration in the required schema.`,
+    userPrompt: `Measured speech duration: ${input.measuredDurationSeconds.toFixed(1)} seconds
+Target video duration: ${input.targetDurationSeconds} seconds
+
+Audited scenes:
+${JSON.stringify(plan.scenes.map((scene) => ({
+    index: scene.index,
+    fact: scene.fact,
+    narration: scene.narration,
+  })))}`,
+  });
+
+  return {
+    ...plan,
+    scenes: plan.scenes.map((scene, index) => ({
+      ...scene,
+      narration: revision.scenes[index].narration,
+    })),
   };
 }
 

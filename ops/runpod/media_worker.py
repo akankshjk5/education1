@@ -167,7 +167,7 @@ class QueueClient:
     def lesson_bundle(self, project_id: str) -> dict[str, Any]:
         project_query = urllib.parse.urlencode({
             "id": f"eq.{project_id}",
-            "select": "id,narration_url,target_duration_seconds",
+            "select": "id,narration_url,narration_duration_seconds,target_duration_seconds",
             "limit": "1",
         })
         projects = self.client.request("GET", f"/rest/v1/lesson_video_projects?{project_query}")
@@ -456,6 +456,7 @@ def probe_video_duration(path: Path) -> float:
 
 def lesson_filter_graph(
     scenes: list[dict[str, Any]], clip_durations: list[float], target_duration: int,
+    narration_duration: float | None = None,
 ) -> str:
     if not scenes or len(scenes) != len(clip_durations):
         raise WorkerError("invalid_scene_count", "Scene metadata and clip counts do not match")
@@ -476,9 +477,12 @@ def lesson_filter_graph(
         )
         video_labels.append(f"[{label}]")
     filters.append(f"{''.join(video_labels)}concat=n={len(video_labels)}:v=1:a=0[video]")
+    audio_filters = f"[{len(scenes)}:a]aresample=48000,"
+    if narration_duration and narration_duration > target_duration - 1:
+        audio_filters += f"atempo={narration_duration / (target_duration - 1):.8f},"
     filters.append(
-        f"[{len(scenes)}:a]aresample=48000,apad,"
-        f"atrim=duration={target_duration},asetpts=PTS-STARTPTS[audio]"
+        f"{audio_filters}apad,atrim=duration={target_duration},"
+        "asetpts=PTS-STARTPTS[audio]"
     )
     return ";".join(filters)
 
@@ -506,7 +510,10 @@ def assemble_lesson_video(
     narration_path = output_dir / f"{job['id']}-narration.wav"
     download_lesson_asset(str(project["narration_url"]), narration_path, 100 * 1024 * 1024)
 
-    filter_graph = lesson_filter_graph(scenes, clip_durations, target_duration)
+    narration_duration = float(project.get("narration_duration_seconds") or 0)
+    filter_graph = lesson_filter_graph(
+        scenes, clip_durations, target_duration, narration_duration
+    )
 
     output_path = output_dir / f"{job['id']}-lesson.mp4"
     command = ["ffmpeg", "-y", "-v", "error"]
@@ -542,6 +549,10 @@ def assemble_lesson_video(
     metadata.update({
         "scene_count": len(scenes),
         "target_duration_seconds": target_duration,
+        "narration_duration_seconds": round(narration_duration, 3),
+        "narration_speed_factor": round(
+            max(1.0, narration_duration / (target_duration - 1)), 4
+        ),
         "source_clip_durations": [round(value, 3) for value in clip_durations],
     })
     return output_path, metadata
