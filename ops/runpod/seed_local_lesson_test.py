@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 import uuid
 import wave
@@ -38,12 +40,17 @@ def request(
 ) -> Any:
     body = data
     request_headers = dict(headers or {})
+    request_headers.setdefault("User-Agent", "LuminaLessonAcceptance/1.0")
     if payload is not None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request_headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=body, headers=request_headers, method=method)
-    with urllib.request.urlopen(req, timeout=timeout) as response:
-        result = response.read()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            result = response.read()
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")[:500]
+        raise RuntimeError(f"HTTP {error.code} from {urllib.parse.urlparse(url).path}: {detail}") from error
     return json.loads(result or b"null") if expect_json else result
 
 
@@ -300,6 +307,9 @@ def seed(plan: dict[str, Any], audio: bytes, audio_duration: float) -> str:
 def main() -> int:
     if not SUPABASE_URL or not SERVICE_KEY:
         raise SystemExit("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
+    if "--auth-check" in sys.argv[1:]:
+        print(json.dumps({"authenticated": bool(owner_id())}))
+        return 0
     started = time.monotonic()
     plan = plan_lesson()
     planned = time.monotonic()
