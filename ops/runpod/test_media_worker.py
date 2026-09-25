@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from media_worker import (
     QueueClient,
@@ -20,15 +21,25 @@ from media_worker import (
 
 
 class WorkerContractTests(unittest.TestCase):
-    def test_stable_motion_is_only_default_for_narrated_lesson_clips(self) -> None:
-        self.assertTrue(uses_stable_lesson_motion({"kind": "video", "_queue": "lesson"}))
-        self.assertFalse(uses_stable_lesson_motion({"kind": "video", "_queue": "deck"}))
-        self.assertFalse(uses_stable_lesson_motion({"kind": "image", "_queue": "lesson"}))
+    def test_wan_animation_is_the_default_for_narrated_lesson_clips(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertFalse(uses_stable_lesson_motion({"kind": "video", "_queue": "lesson"}))
 
-    def test_fact_cards_are_only_default_for_narrated_lesson_images(self) -> None:
-        self.assertTrue(uses_lesson_fact_card({"kind": "image", "_queue": "lesson"}))
-        self.assertFalse(uses_lesson_fact_card({"kind": "image", "_queue": "deck"}))
-        self.assertFalse(uses_lesson_fact_card({"kind": "video", "_queue": "lesson"}))
+    def test_stable_motion_requires_an_explicit_recovery_override(self) -> None:
+        with patch.dict("os.environ", {"LESSON_VIDEO_MOTION_MODE": "stable"}):
+            self.assertTrue(uses_stable_lesson_motion({"kind": "video", "_queue": "lesson"}))
+            self.assertFalse(uses_stable_lesson_motion({"kind": "video", "_queue": "deck"}))
+            self.assertFalse(uses_stable_lesson_motion({"kind": "image", "_queue": "lesson"}))
+
+    def test_generated_storyboards_are_the_default_for_narrated_lessons(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertFalse(uses_lesson_fact_card({"kind": "image", "_queue": "lesson"}))
+
+    def test_fact_cards_require_an_explicit_recovery_override(self) -> None:
+        with patch.dict("os.environ", {"LESSON_IMAGE_MODE": "fact-card"}):
+            self.assertTrue(uses_lesson_fact_card({"kind": "image", "_queue": "lesson"}))
+            self.assertFalse(uses_lesson_fact_card({"kind": "image", "_queue": "deck"}))
+            self.assertFalse(uses_lesson_fact_card({"kind": "video", "_queue": "lesson"}))
 
     def test_upload_uses_deck_scoped_pro_bucket(self) -> None:
         calls = []
@@ -91,10 +102,12 @@ class WorkerContractTests(unittest.TestCase):
             "complete_deck_media_job",
         )
 
-    def test_lesson_filter_graph_stretches_and_concatenates_scenes(self) -> None:
+    def test_lesson_filter_graph_stretches_and_transitions_scenes(self) -> None:
         scenes = [{"duration_seconds": 7.5} for _ in range(8)]
         graph = lesson_filter_graph(scenes, [5.0] * 8, 60)
         self.assertIn("[0:v]setpts=1.50000000*PTS", graph)
+        self.assertIn("fade=t=out:st=7.250:d=0.250:color=0xF4F1E8", graph)
+        self.assertIn("fade=t=in:st=0:d=0.250:color=0xF4F1E8", graph)
         self.assertIn("concat=n=8:v=1:a=0[video]", graph)
         self.assertIn("[8:a]aresample=48000,apad,atrim=duration=60", graph)
 

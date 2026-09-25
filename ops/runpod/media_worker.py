@@ -368,9 +368,22 @@ def load_workflow(job: dict[str, Any], workflow_dir: Path, comfy_input: Path) ->
     # Wan video latent lengths must be 1 modulo 4. Round up to the next valid
     # length so the delivered clip is never shorter than requested.
     frames = wan_frame_count(duration_seconds, fps)
+    prompt = str(job["prompt"])
+    negative_prompt = str(job.get("negative_prompt", ""))
+    if job.get("kind") == "video" and job.get("_queue") == "lesson":
+        prompt += (
+            " This must be a genuinely animated explanatory shot: the subject and concept "
+            "objects visibly move or change state according to every action beat. Camera motion "
+            "is secondary and cannot be the only animation. Maintain object identity and finish "
+            "on the specified conceptually correct state."
+        )
+        negative_prompt += (
+            ", frozen subject, static image, slideshow, moving photograph, camera-only motion, "
+            "unmotivated motion, invented objects"
+        )
     tokens = {
-        "__PROMPT__": job["prompt"],
-        "__NEGATIVE_PROMPT__": job.get("negative_prompt", ""),
+        "__PROMPT__": prompt,
+        "__NEGATIVE_PROMPT__": negative_prompt,
         "__SOURCE_IMAGE__": source_name,
         "__SEED__": int(parameters.get("seed", 42)),
         "__WIDTH__": int(parameters.get("width", 1024 if job["kind"] == "image" else 832)),
@@ -551,7 +564,7 @@ def uses_stable_lesson_motion(job: dict[str, Any]) -> bool:
     return (
         job.get("kind") == "video"
         and job.get("_queue") == "lesson"
-        and os.environ.get("LESSON_VIDEO_MOTION_MODE", "stable").lower() == "stable"
+        and os.environ.get("LESSON_VIDEO_MOTION_MODE", "wan").lower() == "stable"
     )
 
 
@@ -559,7 +572,7 @@ def uses_lesson_fact_card(job: dict[str, Any]) -> bool:
     return (
         job.get("kind") == "image"
         and job.get("_queue") == "lesson"
-        and os.environ.get("LESSON_IMAGE_MODE", "fact-card").lower() == "fact-card"
+        and os.environ.get("LESSON_IMAGE_MODE", "generated").lower() == "fact-card"
     )
 
 
@@ -606,6 +619,10 @@ def lesson_filter_graph(
     if not scenes or len(scenes) != len(clip_durations):
         raise WorkerError("invalid_scene_count", "Scene metadata and clip counts do not match")
     filters: list[str] = []
+    transition_duration = min(
+        0.25,
+        min(float(scene["duration_seconds"]) for scene in scenes) / 4,
+    ) if len(scenes) > 1 else 0.0
     video_labels: list[str] = []
     for position, (scene, source_duration) in enumerate(zip(scenes, clip_durations)):
         scene_duration = float(scene["duration_seconds"])
@@ -613,12 +630,23 @@ def lesson_filter_graph(
             raise WorkerError("invalid_scene_duration", "Scene durations must be positive")
         speed_ratio = scene_duration / source_duration
         label = f"v{position}"
+        transitions: list[str] = []
+        if position > 0:
+            transitions.append(
+                f"fade=t=in:st=0:d={transition_duration:.3f}:color=0xF4F1E8"
+            )
+        if position < len(scenes) - 1:
+            transitions.append(
+                f"fade=t=out:st={scene_duration - transition_duration:.3f}:"
+                f"d={transition_duration:.3f}:color=0xF4F1E8"
+            )
+        transition_filters = "" if not transitions else "," + ",".join(transitions)
         filters.append(
             f"[{position}:v]setpts={speed_ratio:.8f}*PTS,fps=16,"
             f"scale=832:480:force_original_aspect_ratio=decrease,"
             f"pad=832:480:(ow-iw)/2:(oh-ih)/2:black,"
             f"format=yuv420p,setsar=1,trim=duration={scene_duration:.3f},"
-            f"setpts=PTS-STARTPTS[{label}]"
+            f"setpts=PTS-STARTPTS{transition_filters}[{label}]"
         )
         video_labels.append(f"[{label}]")
     filters.append(f"{''.join(video_labels)}concat=n={len(video_labels)}:v=1:a=0[video]")

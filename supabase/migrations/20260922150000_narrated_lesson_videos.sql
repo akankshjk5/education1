@@ -231,11 +231,11 @@ begin
     end if;
 
     v_image_prompt := format(
-      'Educational visual for Class %s %s about %s. Scene %s of %s. Exact concept: %s. Visual composition: %s. Show the real topic mechanism, objects and relationships. One coherent widescreen 16:9 composition, accurate physical details, clean subject separation. No classroom, teacher, student audience, blackboard, projector, presentation slide, UI, source code, written equation, caption, label, logo, watermark, letters, numbers, or visible text.',
+      'Opening keyframe for a genuinely animated educational sequence for Class %s %s about %s. Scene %s of %s. Exact concept: %s. Visual composition: %s. Premium editorial motion-graphics composition with layered tactile objects, clear foreground and background separation, accurate physical relationships, and every object needed for the coming action already visible. One coherent widescreen 16:9 frame. No classroom, teacher, student audience, blackboard, projector, presentation slide, UI, source code, written equation, caption, label, logo, watermark, letters, numbers, or visible text.',
       p_class_level, trim(p_subject), trim(p_topic), v_index, v_expected_count, v_fact, v_visual
     );
     v_video_prompt := format(
-      'Animate this exact educational scene about %s. Preserve every object and the composition from the source image. Motion: %s. Use restrained continuous motion and a gentle stable camera move. No cuts, morphing, new objects, classroom, teacher, captions, labels, logo, watermark, letters, numbers, or visible text.',
+      'Create a true animated explanation of this exact educational scene about %s, not a slideshow or moving photograph. Preserve object identity and the source composition, then execute every ordered action beat: %s. The subject action must visibly demonstrate the concept; camera movement is secondary. Use smooth purposeful motion, stable geometry, and a clear final state. No cuts, uncontrolled morphing, invented objects, classroom, teacher, captions, labels, logo, watermark, letters, numbers, or visible text.',
       trim(p_topic), v_motion
     );
 
@@ -252,7 +252,7 @@ begin
       negative_prompt, parameters
     ) values (
       v_owner, v_project.id, v_scene_row.id, 'image', 'image-fast', v_image_prompt,
-      'text, writing, letters, numbers, captions, labels, classroom, teacher, blackboard, projector, watermark, logo, distorted anatomy, duplicate subjects, low quality',
+      'text, writing, letters, numbers, captions, labels, classroom, teacher, blackboard, projector, watermark, logo, distorted anatomy, duplicate subjects, low quality, static slide, presentation card',
       jsonb_build_object('width', 1024, 'height', 576, 'steps', 8, 'sceneIndex', v_index)
     );
   end loop;
@@ -470,7 +470,7 @@ begin
       negative_prompt, source_image_url, parameters
     ) values (
       v_project.owner_id, v_project.id, v_scene.id, 'video', 'video-fast', v_scene.video_prompt,
-      'text, writing, letters, numbers, captions, labels, logo, watermark, cuts, flicker, deformation, unstable geometry',
+      'text, writing, letters, numbers, captions, labels, logo, watermark, cuts, flicker, deformation, unstable geometry, frozen subject, static image, slideshow, camera-only motion',
       p_output_url,
       jsonb_build_object('width', 832, 'height', 480, 'durationSeconds', 5, 'fps', 16, 'steps', 20, 'sceneIndex', v_scene.scene_index)
     );

@@ -101,13 +101,18 @@ export MEDIA_WORKFLOW_DIR=/root/lumina-deck-pro/ops/runpod/workflows/api
 export COMFYUI_INPUT_DIR=/root/lumina-runtime/ComfyUI/input
 export COMFYUI_OUTPUT_DIR=/root/lumina-runtime/ComfyUI/output
 export MEDIA_OUTPUT_DIR=/root/lumina-runtime/media-output
-export WAN_FAST_STEPS=30
+export WAN_FAST_STEPS=20
 bash ops/runpod/start_media_worker.sh
 ```
 
 The worker checks the narrated-lesson queue first, then claims one `deck_media_jobs` row at a time. It heartbeats, honors cancellation, validates outputs, and normalizes video to H.264 MP4. Deck-owned jobs upload to `deck-assets/<deck-id>/media/`; legacy standalone Video projects upload to `video-assets/<project-id>/media/`; narrated lessons upload to `lesson-video-assets/<project-id>/media/`.
 
-For a narrated lesson, Postgres queues all topic-specific Z-Image scenes, then queues one five-second Wan animation per completed still. Once every animation and the server-generated narration are ready, it queues a `lesson-assemble` job. That job stretches each stable five-second clip to its 7.5-second timeline slot, concatenates the scenes, pads/trims the narration to the requested 60 or 90 seconds, and writes one H.264/AAC MP4. The durable chain continues if the browser closes or the Pod restarts. The worker health endpoint is `http://127.0.0.1:8090/health`.
+For a narrated lesson, Postgres queues all topic-specific Z-Image opening keyframes, then queues one five-second Wan animation per completed keyframe. Each motion prompt contains ordered subject-action beats that demonstrate the scene fact; camera movement alone is rejected by the planner. Once every animation and the server-generated narration are ready, Postgres queues a `lesson-assemble` job. That job stretches each generated five-second clip to its 7.5-second timeline slot, concatenates the scenes, pads/trims the narration to the requested 60 or 90 seconds, and writes one H.264/AAC MP4. The durable chain continues if the browser closes or the Pod restarts. The worker health endpoint is `http://127.0.0.1:8090/health`.
+
+Real generated storyboards and Wan animation are the defaults. The deterministic
+fact-card and Ken-Burns implementations are emergency recovery modes only and
+must be enabled explicitly with `LESSON_IMAGE_MODE=fact-card` and
+`LESSON_VIDEO_MOTION_MODE=stable`. They are not the narrated-video product.
 
 All narrated-video inference is local on the Pod. Qwen executes the English
 scriptwriter, curriculum-review, storyboard-planning, and narration-fitting roles.
@@ -140,11 +145,10 @@ ssh -N \
   -p YOUR_TCP_PORT -i ~/.ssh/id_ed25519 root@YOUR_POD_IP
 ```
 
-The current fast target uses the official native-template value of 20 sampling
-steps. Keep the server-only `WAN_FAST_STEPS=30` for the first live test because
-that graph has already passed on the target GPU. Only switch to 20 after it
-passes the fixed-seed GPU comparison in `BENCHMARK.md`; do not quote a client
-SLA before that comparison.
+The current fast target uses 20 sampling steps. It has passed the live 832x480,
+49-frame RunPod smoke test; use 30 only as an explicit quality comparison. Do
+not quote a client SLA before an eight-scene end-to-end timing run on the target
+Pod.
 
 ## Quality candidate
 
