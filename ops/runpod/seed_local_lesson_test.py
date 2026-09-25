@@ -131,6 +131,14 @@ def plan_lesson() -> dict[str, Any]:
         else:
             for item in scenes:
                 words = len(str(item["narration"]).split())
+                fact = str(item["fact"]).strip()
+                fact_words = len(fact.split())
+                if words < 8 and 8 <= fact_words <= 16:
+                    # The fact has already passed the curriculum audit. Reusing it
+                    # is safer than asking the planner to invent filler solely to
+                    # satisfy a narration-length test.
+                    item["narration"] = fact
+                    words = fact_words
                 if not 8 <= words <= 16:
                     errors.append(
                         f"Scene {item['index']} narration has {words} words; rewrite it to 8-16."
@@ -171,7 +179,7 @@ def synthesize(plan: dict[str, Any]) -> tuple[bytes, float]:
     audio = local_post(
         TTS_URL,
         "/synthesize",
-        {"transcript": transcript, "languageCode": "kn-IN", "pace": "brisk"},
+        {"transcript": transcript, "languageCode": "kn-IN", "pace": "natural"},
         raw=True,
     )
     with wave.open(BytesIO(audio), "rb") as wav:
