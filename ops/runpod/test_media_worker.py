@@ -12,12 +12,24 @@ from media_worker import (
     lesson_filter_graph,
     replace_tokens,
     resolve_job_parameters,
+    uses_lesson_fact_card,
+    uses_stable_lesson_motion,
     validate_output,
     wan_frame_count,
 )
 
 
 class WorkerContractTests(unittest.TestCase):
+    def test_stable_motion_is_only_default_for_narrated_lesson_clips(self) -> None:
+        self.assertTrue(uses_stable_lesson_motion({"kind": "video", "_queue": "lesson"}))
+        self.assertFalse(uses_stable_lesson_motion({"kind": "video", "_queue": "deck"}))
+        self.assertFalse(uses_stable_lesson_motion({"kind": "image", "_queue": "lesson"}))
+
+    def test_fact_cards_are_only_default_for_narrated_lesson_images(self) -> None:
+        self.assertTrue(uses_lesson_fact_card({"kind": "image", "_queue": "lesson"}))
+        self.assertFalse(uses_lesson_fact_card({"kind": "image", "_queue": "deck"}))
+        self.assertFalse(uses_lesson_fact_card({"kind": "video", "_queue": "lesson"}))
+
     def test_upload_uses_deck_scoped_pro_bucket(self) -> None:
         calls = []
 

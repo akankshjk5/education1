@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -77,7 +78,10 @@ def translate(payload: dict[str, Any]) -> list[str]:
             with torch.inference_mode():
                 generated = MODEL.generate(
                     **encoded,
-                    use_cache=True,
+                    # IndicTrans2's remote decoder expects the legacy cache tuple.
+                    # Transformers 4.57 can seed that tuple with None entries, so
+                    # disabling KV caching avoids an upstream compatibility crash.
+                    use_cache=False,
                     min_length=0,
                     max_length=256,
                     num_beams=5,
@@ -130,6 +134,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"translations": translations})
         except Exception as exc:
             print(f"[local-translation] request failed: {type(exc).__name__}: {exc}", flush=True)
+            traceback.print_exc()
             self.send_json(500, {"error": f"Local translation failed: {type(exc).__name__}"})
 
 

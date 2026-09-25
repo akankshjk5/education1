@@ -15,6 +15,7 @@ import os
 import signal
 import subprocess
 import sys
+import textwrap
 import threading
 import time
 import urllib.error
@@ -182,6 +183,25 @@ class QueueClient:
         if not scenes or any(not scene.get("video_url") for scene in scenes):
             raise WorkerError("missing_scene", "One or more lesson clips are not ready")
         return {"project": projects[0], "scenes": scenes}
+
+    def lesson_scene_context(self, scene_id: str) -> dict[str, Any]:
+        scene_query = urllib.parse.urlencode({
+            "id": f"eq.{scene_id}",
+            "select": "scene_index,fact,project_id",
+            "limit": "1",
+        })
+        scenes = self.client.request("GET", f"/rest/v1/lesson_video_scenes?{scene_query}")
+        if not scenes:
+            raise WorkerError("missing_scene", "Lesson scene was not found")
+        project_query = urllib.parse.urlencode({
+            "id": f"eq.{scenes[0]['project_id']}",
+            "select": "class_level,subject,topic",
+            "limit": "1",
+        })
+        projects = self.client.request("GET", f"/rest/v1/lesson_video_projects?{project_query}")
+        if not projects:
+            raise WorkerError("missing_project", "Lesson project was not found")
+        return {**projects[0], **scenes[0]}
 
 
 class ComfyClient:
@@ -418,6 +438,131 @@ def normalize_video(path: Path) -> Path:
     return normalized
 
 
+def animate_lesson_image(
+    job: dict[str, Any], comfy_input: Path, output_dir: Path,
+) -> Path:
+    """Create a stable lesson clip from one generated scene image.
+
+    A restrained Ken Burns move is intentional here: generative image-to-video
+    can change counts, symbols, anatomy, or object identity after the audited
+    key visual is approved. Deterministic motion keeps that teaching visual
+    intact, renders in seconds, and leaves Wan available for explicit creative
+    video jobs.
+    """
+    source_name = download_source_image(job, comfy_input)
+    source_path = comfy_input / source_name
+    parameters = resolve_job_parameters(job)
+    width = int(parameters.get("width", 832))
+    height = int(parameters.get("height", 480))
+    fps = int(parameters.get("fps", 16))
+    duration = float(parameters.get("durationSeconds", 5))
+    frame_count = max(2, round(duration * fps))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{job['id']}-stable-motion.mp4"
+    # Alternate the very small motion direction so adjacent scenes do not feel
+    # duplicated. The image contents themselves never get synthesized again.
+    scene_index = int((job.get("parameters") or {}).get("sceneIndex") or 1)
+    zoom_delta = "0.00045" if scene_index % 2 else "0.00035"
+    x_expr = "iw/2-(iw/zoom/2)" if scene_index % 2 else "min(iw-iw/zoom,on*0.35)"
+    filter_graph = (
+        f"scale={width * 2}:{height * 2}:force_original_aspect_ratio=increase,"
+        f"crop={width * 2}:{height * 2},"
+        f"zoompan=z='min(zoom+{zoom_delta},1.035)':x='{x_expr}':"
+        f"y='ih/2-(ih/zoom/2)':d={frame_count}:s={width}x{height}:fps={fps},"
+        "format=yuv420p"
+    )
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", str(source_path),
+                "-vf", filter_graph, "-frames:v", str(frame_count), "-an",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(output_path),
+            ],
+            check=True, capture_output=True, text=True, timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise WorkerError("stable_motion_failed", f"ffmpeg failed: {error}") from error
+    return output_path
+
+
+def render_lesson_fact_card(
+    job: dict[str, Any], queue: QueueClient, output_dir: Path,
+) -> Path:
+    """Render the audited database fact without asking an image model to spell."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    context = queue.lesson_scene_context(str(job["scene_id"]))
+    width, height = 1024, 576
+    image = Image.new("RGB", (width, height), "#090d1a")
+    draw = ImageDraw.Draw(image)
+    for y in range(height):
+        ratio = y / max(1, height - 1)
+        draw.line((0, y, width, y), fill=(9 + int(17 * ratio), 13 + int(8 * ratio), 26 + int(24 * ratio)))
+    draw.ellipse((-150, -220, 410, 340), fill="#4025a8")
+    draw.ellipse((770, 310, 1180, 720), fill="#087f83")
+    draw.rounded_rectangle((54, 44, 970, 532), radius=34, fill="#10172b", outline="#6d5dfc", width=3)
+
+    font_path = os.environ.get("LESSON_CARD_FONT", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+    bold_path = os.environ.get(
+        "LESSON_CARD_BOLD_FONT", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    )
+    small = ImageFont.truetype(bold_path, 22)
+    title_font = ImageFont.truetype(bold_path, 42)
+    fact_font = ImageFont.truetype(bold_path, 46)
+    footer_font = ImageFont.truetype(font_path, 20)
+
+    subject = str(context["subject"]).upper()
+    topic = str(context["topic"]).upper()
+    scene_index = int(context["scene_index"])
+    draw.rounded_rectangle((88, 76, 520, 118), radius=21, fill="#201b47")
+    draw.text((108, 83), f"CLASS {context['class_level']}  •  {subject}", font=small, fill="#c9c3ff")
+    draw.text((88, 152), topic, font=title_font, fill="#62e4df")
+
+    fact = str(context["fact"]).strip()
+    lines = textwrap.wrap(fact, width=34, break_long_words=False, break_on_hyphens=False)
+    while len(lines) > 4 and fact_font.size > 32:
+        fact_font = ImageFont.truetype(bold_path, fact_font.size - 2)
+        lines = textwrap.wrap(fact, width=40, break_long_words=False, break_on_hyphens=False)
+    y = 224
+    spacing = fact_font.size + 12
+    for line in lines[:4]:
+        draw.text((88, y), line, font=fact_font, fill="#ffffff")
+        y += spacing
+
+    draw.ellipse((830, 76, 936, 182), fill="#5b47f5")
+    number = str(scene_index)
+    box = draw.textbbox((0, 0), number, font=title_font)
+    draw.text(
+        (883 - (box[2] - box[0]) / 2, 129 - (box[3] - box[1]) / 2 - box[1]),
+        number,
+        font=title_font,
+        fill="#ffffff",
+    )
+    draw.text((88, 480), "Fact-checked lesson • Kannada voice-over", font=footer_font, fill="#9ea9c7")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{job['id']}-fact-card.png"
+    image.save(output_path, format="PNG", optimize=True)
+    return output_path
+
+
+def uses_stable_lesson_motion(job: dict[str, Any]) -> bool:
+    return (
+        job.get("kind") == "video"
+        and job.get("_queue") == "lesson"
+        and os.environ.get("LESSON_VIDEO_MOTION_MODE", "stable").lower() == "stable"
+    )
+
+
+def uses_lesson_fact_card(job: dict[str, Any]) -> bool:
+    return (
+        job.get("kind") == "image"
+        and job.get("_queue") == "lesson"
+        and os.environ.get("LESSON_IMAGE_MODE", "fact-card").lower() == "fact-card"
+    )
+
+
 def download_lesson_asset(url: str, destination: Path, max_bytes: int = 250 * 1024 * 1024) -> Path:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname:
@@ -650,34 +795,47 @@ def process_job(
             queue.complete(job, worker_id, output_url, metadata)
             return
 
-        workflow = load_workflow(job, workflow_dir, comfy_input)
         queue.heartbeat(job, worker_id, 5)
-        prompt_id = comfy.submit(workflow)
         generation_started = time.monotonic()
-        last_heartbeat = 0.0
-
-        def tick() -> None:
-            nonlocal last_heartbeat
+        stable_lesson_motion = uses_stable_lesson_motion(job)
+        lesson_fact_card = uses_lesson_fact_card(job)
+        if lesson_fact_card:
+            path = render_lesson_fact_card(job, queue, output_dir)
+        elif stable_lesson_motion:
             if queue.cancelled(job):
-                comfy.interrupt()
                 raise WorkerError("cancelled", "Cancellation requested")
-            now = time.monotonic()
-            if now - last_heartbeat >= 10:
-                queue.heartbeat(job, worker_id, 25)
-                last_heartbeat = now
+            path = animate_lesson_image(job, comfy_input, output_dir)
+        else:
+            workflow = load_workflow(job, workflow_dir, comfy_input)
+            prompt_id = comfy.submit(workflow)
+            last_heartbeat = 0.0
 
-        history = comfy.wait(
-            prompt_id,
-            int(os.environ.get("MEDIA_JOB_TIMEOUT_SECONDS", "1800")),
-            tick,
-        )
+            def tick() -> None:
+                nonlocal last_heartbeat
+                if queue.cancelled(job):
+                    comfy.interrupt()
+                    raise WorkerError("cancelled", "Cancellation requested")
+                now = time.monotonic()
+                if now - last_heartbeat >= 10:
+                    queue.heartbeat(job, worker_id, 25)
+                    last_heartbeat = now
+
+            history = comfy.wait(
+                prompt_id,
+                int(os.environ.get("MEDIA_JOB_TIMEOUT_SECONDS", "1800")),
+                tick,
+            )
+            path = comfy.download_output(history, output_dir / job_id)
         generation_seconds = time.monotonic() - generation_started
         queue.heartbeat(job, worker_id, 85)
         postprocess_started = time.monotonic()
-        path = comfy.download_output(history, output_dir / job_id)
-        if job["kind"] == "video":
+        if job["kind"] == "video" and not stable_lesson_motion:
             path = normalize_video(path)
         metadata = validate_output(path, str(job["kind"]))
+        if stable_lesson_motion:
+            metadata["motion_mode"] = "stable-ken-burns"
+        if lesson_fact_card:
+            metadata["visual_mode"] = "deterministic-fact-card"
         postprocess_seconds = time.monotonic() - postprocess_started
         queue.heartbeat(job, worker_id, 95)
         upload_started = time.monotonic()

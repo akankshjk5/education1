@@ -6,7 +6,9 @@ set -euo pipefail
 
 export COMFYUI_URL="${COMFYUI_URL:-http://127.0.0.1:8188}"
 export MEDIA_JOB_TIMEOUT_SECONDS="${MEDIA_JOB_TIMEOUT_SECONDS:-1800}"
-export WAN_FAST_STEPS="${WAN_FAST_STEPS:-30}"
+export WAN_FAST_STEPS="${WAN_FAST_STEPS:-20}"
+export LESSON_VIDEO_MOTION_MODE="${LESSON_VIDEO_MOTION_MODE:-stable}"
+export LESSON_IMAGE_MODE="${LESSON_IMAGE_MODE:-fact-card}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_ROOT="${RUNPOD_WORKSPACE_ROOT:-/root/lumina-runtime}"
