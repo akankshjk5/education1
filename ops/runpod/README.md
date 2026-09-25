@@ -109,7 +109,36 @@ The worker checks the narrated-lesson queue first, then claims one `deck_media_j
 
 For a narrated lesson, Postgres queues all topic-specific Z-Image scenes, then queues one five-second Wan animation per completed still. Once every animation and the server-generated narration are ready, it queues a `lesson-assemble` job. That job stretches each stable five-second clip to its 7.5-second timeline slot, concatenates the scenes, pads/trims the narration to the requested 60 or 90 seconds, and writes one H.264/AAC MP4. The durable chain continues if the browser closes or the Pod restarts. The worker health endpoint is `http://127.0.0.1:8090/health`.
 
-The image/video inference remains local on the Pod. Lesson planning and Indian-language speech are intentionally performed by the web server before GPU queuing, so the expensive GPU is not held while waiting on text/audio APIs. Never put those provider keys on the Pod or in browser-prefixed variables.
+All narrated-video inference is local on the Pod. Qwen executes the English
+scriptwriter, curriculum-review, storyboard-planning, and narration-fitting roles.
+AI4Bharat IndicTrans2 translates only the approved title and narration into the
+selected Indian language, and AI4Bharat Indic Parler-TTS creates its voice track.
+Z-Image and Wan create the scene media; FFmpeg performs final editing. The six
+skills in the reference repository define responsibilities and hand-offs only;
+their Gemini, OpenRouter, Nano Banana, and Veo provider calls are not used.
+
+Provision the local reasoning and narration models after accepting the gated
+AI4Bharat model terms in Hugging Face and authenticating the Pod with a
+read-only token:
+
+```bash
+bash ops/runpod/provision_local_agents.sh all
+bash ops/runpod/start_local_agents.sh all
+curl --fail --silent http://127.0.0.1:18080/health
+curl --fail --silent http://127.0.0.1:18081/health
+curl --fail --silent http://127.0.0.1:18082/health
+```
+
+All three services bind to Pod loopback only. For local Next.js development, create
+an SSH tunnel rather than exposing raw public ports:
+
+```bash
+ssh -N \
+  -L 18080:127.0.0.1:18080 \
+  -L 18081:127.0.0.1:18081 \
+  -L 18082:127.0.0.1:18082 \
+  -p YOUR_TCP_PORT -i ~/.ssh/id_ed25519 root@YOUR_POD_IP
+```
 
 The current fast target uses the official native-template value of 20 sampling
 steps. Keep the server-only `WAN_FAST_STEPS=30` for the first live test because

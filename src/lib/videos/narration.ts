@@ -1,26 +1,29 @@
 import 'server-only';
 
-import { GoogleGenAI, Modality } from '@google/genai';
-
-import { serverEnv } from '@/lib/env';
+import { synthesizeLocalSpeech } from '@/lib/videos/local-ai';
 import { videoLanguage, type VideoLanguageCode } from '@/lib/videos/languages';
 
-function pcmToWave(pcm: Buffer, sampleRate = 24_000): Buffer {
-  const header = Buffer.alloc(44);
-  header.write('RIFF', 0);
-  header.writeUInt32LE(36 + pcm.length, 4);
-  header.write('WAVE', 8);
-  header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(1, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(sampleRate * 2, 28);
-  header.writeUInt16LE(2, 32);
-  header.writeUInt16LE(16, 34);
-  header.write('data', 36);
-  header.writeUInt32LE(pcm.length, 40);
-  return Buffer.concat([header, pcm]);
+function waveDurationSeconds(wave: Buffer): number {
+  if (wave.length < 44 || wave.toString('ascii', 0, 4) !== 'RIFF' || wave.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error('Local narration service returned an invalid WAV file.');
+  }
+  let offset = 12;
+  let byteRate = 0;
+  let dataBytes = 0;
+  while (offset + 8 <= wave.length) {
+    const id = wave.toString('ascii', offset, offset + 4);
+    const size = wave.readUInt32LE(offset + 4);
+    const payload = offset + 8;
+    if (id === 'fmt ' && size >= 16 && payload + size <= wave.length) {
+      byteRate = wave.readUInt32LE(payload + 8);
+    } else if (id === 'data' && payload + size <= wave.length) {
+      dataBytes = size;
+      break;
+    }
+    offset = payload + size + (size % 2);
+  }
+  if (byteRate <= 0 || dataBytes <= 0) throw new Error('Local narration WAV has no playable PCM data.');
+  return Number((dataBytes / byteRate).toFixed(3));
 }
 
 export interface NarrationAudio {
@@ -35,49 +38,9 @@ export async function synthesizeNarration(
   languageCode: VideoLanguageCode,
   pace: 'natural' | 'brisk' = 'natural',
 ): Promise<NarrationAudio> {
-  const language = videoLanguage(languageCode);
-  const voice = process.env.GEMINI_TTS_VOICE?.trim() || 'Kore';
-  const model = process.env.GEMINI_TTS_MODEL?.trim() || 'gemini-2.5-flash-preview-tts';
-  const vertexKey = process.env.GOOGLE_VERTEX_API_KEY?.trim();
-  const geminiKey = process.env.GENAI_API_KEY?.trim();
-  const apiKey = vertexKey || geminiKey;
-  if (!apiKey) {
-    throw new Error('Narration is not configured. Set GOOGLE_VERTEX_API_KEY or GENAI_API_KEY.');
-  }
-
-  const client = vertexKey
-    ? new GoogleGenAI({
-        vertexai: true,
-        apiKey,
-        project: serverEnv.googleCloudProject,
-        location: serverEnv.googleCloudLocation,
-      })
-    : new GoogleGenAI({ apiKey });
-
-  const response = await client.models.generateContent({
-    model,
-    contents: `Synthesize speech only. Do not read these directions aloud. Use a warm, clear, knowledgeable Indian educator voice. Speak only in ${language.promptName}, using accurate pronunciation. Use a ${pace === 'brisk' ? 'brisk but clearly understandable' : 'steady, natural'} pace suitable for classroom learning. Do not add, translate, summarize, repeat, or omit any words.\n\nTRANSCRIPT BEGINS:\n${transcript}\nTRANSCRIPT ENDS.`,
-    config: {
-      httpOptions: {
-        timeout: 90_000,
-        retryOptions: { attempts: 1 },
-      },
-      responseModalities: [Modality.AUDIO],
-      speechConfig: {
-        languageCode,
-        voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } },
-      },
-    },
-  });
-
-  if (!response.data) throw new Error('Narration model returned no audio.');
-  const pcm = Buffer.from(response.data, 'base64');
-  if (pcm.length < 48_000) throw new Error('Narration audio was unexpectedly short.');
-
-  return {
-    wave: pcmToWave(pcm),
-    durationSeconds: Number((pcm.length / (24_000 * 2)).toFixed(3)),
-    model,
-    voice,
-  };
+  videoLanguage(languageCode);
+  const audio = await synthesizeLocalSpeech({ transcript, languageCode, pace });
+  const durationSeconds = waveDurationSeconds(audio.wave);
+  if (durationSeconds < 1) throw new Error('Local narration audio was unexpectedly short.');
+  return { ...audio, durationSeconds };
 }

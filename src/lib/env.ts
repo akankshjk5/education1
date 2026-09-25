@@ -37,6 +37,15 @@ export const publicEnv = {
  * bundler would either inline the secret or hand you `undefined`.
  */
 export const serverEnv = {
+  get localVideoAgentUrl() {
+    return process.env.LOCAL_VIDEO_AGENT_URL ?? 'http://127.0.0.1:18080';
+  },
+  get localVideoTtsUrl() {
+    return process.env.LOCAL_VIDEO_TTS_URL ?? 'http://127.0.0.1:18081';
+  },
+  get localVideoTranslationUrl() {
+    return process.env.LOCAL_VIDEO_TRANSLATION_URL ?? 'http://127.0.0.1:18082';
+  },
   get supabaseServiceRoleKey() {
     return required('SUPABASE_SERVICE_ROLE_KEY', process.env.SUPABASE_SERVICE_ROLE_KEY);
   },

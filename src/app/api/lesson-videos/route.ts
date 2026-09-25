@@ -14,6 +14,7 @@ import {
   narrationFromPlan,
   planLesson,
   scenesWithSharedVisualContext,
+  translateLessonPlan,
 } from '@/lib/videos/planner';
 
 export const maxDuration = 300;
@@ -24,7 +25,8 @@ export async function POST(request: Request) {
     await requireUserIdOrThrow();
     const input = CreateLessonVideoSchema.parse(await request.json());
     const language = videoLanguage(input.languageCode);
-    let plan = await planLesson(input);
+    let sourcePlan = await planLesson(input);
+    let plan = await translateLessonPlan(sourcePlan, input.languageCode);
     let narrationText = narrationFromPlan(plan);
     let narration = await synthesizeNarration(narrationText, input.languageCode);
     const minimumNarrationSeconds = input.targetDurationSeconds * 0.6;
@@ -34,11 +36,12 @@ export async function POST(request: Request) {
         narration.durationSeconds >= minimumNarrationSeconds
         && narration.durationSeconds <= maximumNarrationSeconds
       ) break;
-      plan = await adjustNarrationToFit(plan, {
+      sourcePlan = await adjustNarrationToFit(sourcePlan, {
         languageCode: input.languageCode,
         measuredDurationSeconds: narration.durationSeconds,
         targetDurationSeconds: input.targetDurationSeconds,
       });
+      plan = await translateLessonPlan(sourcePlan, input.languageCode);
       narrationText = narrationFromPlan(plan);
       narration = await synthesizeNarration(
         narrationText,

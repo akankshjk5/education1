@@ -2,12 +2,13 @@ import 'server-only';
 
 import { z } from 'zod';
 
-import { serverEnv } from '@/lib/env';
 import {
   narrationUsesSelectedLanguage,
+  usesEnglishProductionScript,
   videoLanguage,
   type VideoLanguageCode,
 } from '@/lib/videos/languages';
+import { generateLocalStructured, translateLocalTexts } from '@/lib/videos/local-ai';
 
 const LessonSceneSchema = z.object({
   index: z.number().int().min(1).max(12),
@@ -50,12 +51,8 @@ export async function planLesson(input: {
   languageCode: VideoLanguageCode;
   targetDurationSeconds: 60 | 90;
 }): Promise<LessonPlan> {
-  // Agent.ts intentionally validates its provider key during module loading.
-  // Load it only for an authenticated generation request, never during build.
-  const { generateStructured } = await import('../../../Agents/Agent');
   const language = videoLanguage(input.languageCode);
   const sceneCount = input.targetDurationSeconds === 60 ? 8 : 12;
-  const plannerModel = serverEnv.modelForSkill('video-planner') ?? serverEnv.openRouterModel;
   const planSchema = LessonPlanSchema.superRefine((plan, ctx) => {
     if (plan.scenes.length !== sceneCount) {
       ctx.addIssue({
@@ -66,23 +63,35 @@ export async function planLesson(input: {
     }
     if (!narrationUsesSelectedLanguage(
       plan.scenes.map((scene) => scene.narration).join(' '),
-      input.languageCode,
+      'en-IN',
     )) {
       ctx.addIssue({
         code: 'custom',
         path: ['scenes'],
-        message: `Narration must use ${language.promptName} and its expected script`,
+        message: 'Source narration must remain in clear English',
+      });
+    }
+    const productionText = [
+      plan.learningObjective,
+      plan.visualBible,
+      ...plan.scenes.flatMap((scene) => [
+        scene.fact,
+        scene.visualDescription,
+        scene.motionDescription,
+      ]),
+    ].join(' ');
+    if (!usesEnglishProductionScript(productionText)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['scenes'],
+        message: 'Facts and production directions must remain in English',
       });
     }
   });
 
-  const draft = await generateStructured({
+  const draft = await generateLocalStructured({
     stage: 'video-lesson-planner',
-    model: plannerModel,
-    effort: 'medium',
-    requestTimeoutMs: 60_000,
-    maxTransientRetries: 0,
-    maxSchemaAttempts: 1,
+    timeoutMs: 120_000,
     schema: planSchema,
     systemPrompt: `You are a careful school curriculum editor and visual lesson planner.
 
@@ -92,10 +101,10 @@ Rules:
 - Interpret an underspecified topic using the supplied school subject and class level. For example, Python under Computer Science means the programming language.
 - Use only stable, broadly accepted curriculum facts. Do not invent statistics, quotations, dates, experiments, people, or claims. If a detail is uncertain or unnecessary, omit it.
 - Keep simplifications age-appropriate without making the mechanism false. Preserve important distinctions between inputs, intermediates, transformations, products, causes, and correlations. Before returning the plan, silently audit every fact and narration line against textbook consensus and rewrite anything uncertain, misleading, or internally inconsistent.
-- Write the title in ${language.promptName}. For Indian English, use clear English rather than a transliterated title. Keep the fact fields in English for auditing even when narration uses another language.
+- Write the title, learning objective, fact fields, and source narration in clear English. A dedicated local translation model will convert only the approved title and narration after fact review.
 - Build a clear educational story arc: scene 1 is a topic-specific visual hook or central question; the middle scenes establish the needed ideas and explain the mechanism step by step; the final scene gives a concise topic-specific synthesis or practical application. Do not use sensational claims or a generic call to action.
 - Each scene must teach one concrete step that logically follows the previous scene. Every narration sentence and every visible object must support that scene's fact. Avoid repetition, tangents, generic motivational filler, and decorative objects unrelated to the lesson.
-- Narration must be in ${language.promptName}, using its natural native script where applicable. Keep every scene concise enough for about 6-7 seconds of natural speech, leaving a short visual pause. The full narration should last roughly ${input.targetDurationSeconds === 60 ? '48-55' : '75-84'} seconds, never longer than the requested video.
+- Source narration must be natural, plain English with one concise sentence of 10-14 words per scene. This word budget survives Indian-language translation while fitting about 6-7 seconds of speech and leaving a short visual pause. The full narration should last roughly ${input.targetDurationSeconds === 60 ? '48-55' : '75-84'} seconds, never longer than the requested video.
 - The fact field is a plain-English statement of the exact fact taught in that scene so it can be audited.
 - Visual and motion descriptions must be in English for the local media models. They must show the actual mechanism, process, objects, or relationships—not a teacher presenting them. Each visualDescription must be a detailed standalone generation prompt naming the main subject, environment, spatial relationships, camera framing, lighting, colors, and the precise curriculum idea being visualized.
 - Use one consistent premium educational-documentary visual language across the entire storyboard: cinematic 16:9 composition, realistic materials, restrained color palette, clean subject separation, and the same rendering style and recurring subject appearance in every scene. Repeat those stable style and identity cues inside every visualDescription because scenes are generated independently.
@@ -108,73 +117,15 @@ Rules:
 Class: ${input.classLevel}
 Subject: ${input.subject}
 Topic: ${input.topic}
-Narration language: ${language.label}
+Final narration language after local translation: ${language.label}
 Target duration: ${input.targetDurationSeconds} seconds
 
 The ${sceneCount} scene facts together must directly explain the topic at this class level.`,
   });
 
-  const verifyPlan = (withSearch: boolean) => generateStructured({
-    stage: 'video-lesson-verifier',
-    model: plannerModel,
-    effort: 'low',
-    schema: planSchema,
-    systemPrompt: `You are a skeptical school curriculum fact-checker and storyboard continuity editor.
-
-Return a complete corrected lesson plan in the required schema. Preserve exactly ${sceneCount} scenes and the requested ${input.targetDurationSeconds}-second structure.
-
-Audit rules:
-- Check every fact and narration line for textbook consensus, precise cause-and-effect, correct inputs/intermediates/products, internal consistency, and suitability for Class ${input.classLevel} ${input.subject}.
-- Remove or rewrite invented details, misleading simplifications, unsupported superlatives, grand claims, generic hooks, tangents, and statements that do not directly explain "${input.topic}".
-- Narration must remain in ${language.promptName}; the title must be in that language (clear English for Indian English); fact fields remain English.
-- Each visual must directly depict its audited fact. Preserve one compact visualBible and identical recurring-subject traits across scenes. Keep visualBible within 500 characters and each scene visualDescription within 500 characters.
-- Preserve the ban on classrooms, presenters, visible writing, captions, labels, logos, UI, source code, written equations, and watermarks.
-- Motion may animate only existing scene elements, with one restrained camera move and no cuts, morphing, transitions, or newly appearing objects.
-- Output only the corrected structured plan.`,
-    userPrompt: `Verify and, where necessary, correct this draft lesson plan:
-
-${JSON.stringify(draft)}
-
-Original request:
-Class: ${input.classLevel}
-Subject: ${input.subject}
-Topic: ${input.topic}
-Narration language: ${language.label}
-Target duration: ${input.targetDurationSeconds} seconds`,
-    requestTimeoutMs: withSearch ? 25_000 : 20_000,
-    maxTransientRetries: 0,
-    maxSchemaAttempts: 1,
-    ...(withSearch ? {
-      search: {
-        engine: 'exa' as const,
-        maxResults: 3,
-        searchPrompt: `Verify stable, age-appropriate curriculum facts for Class ${input.classLevel} ${input.subject}: ${input.topic}`,
-      },
-    } : {}),
-  });
-
-  let plan: LessonPlan;
-  try {
-    plan = await verifyPlan(true);
-  } catch (error) {
-    console.warn(
-      '[video-lesson-verifier] grounded review unavailable; using bounded model-only review',
-      error instanceof Error ? error.message : String(error),
-    );
-    try {
-      plan = await verifyPlan(false);
-    } catch (fallbackError) {
-      console.warn(
-        '[video-lesson-verifier] bounded fallback unavailable; using validated self-audited draft',
-        fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
-      );
-      plan = draft;
-    }
-  }
-
   return {
-    ...plan,
-    title: input.languageCode === 'en-IN' ? input.topic.slice(0, 200) : plan.title,
+    ...draft,
+    title: input.topic.slice(0, 200),
   };
 }
 
@@ -186,7 +137,6 @@ export async function adjustNarrationToFit(
     measuredDurationSeconds: number;
   },
 ): Promise<LessonPlan> {
-  const { generateStructured } = await import('../../../Agents/Agent');
   const language = videoLanguage(input.languageCode);
   const currentText = narrationFromPlan(plan);
   const desiredDuration = input.targetDurationSeconds - 4;
@@ -217,29 +167,25 @@ export async function adjustNarrationToFit(
         message: `Combined narration must be at most ${targetCharacters} characters`,
       });
     }
-    if (!narrationUsesSelectedLanguage(narration, input.languageCode)) {
+    if (!narrationUsesSelectedLanguage(narration, 'en-IN')) {
       ctx.addIssue({
         code: 'custom',
         path: ['scenes'],
-        message: `Narration must use ${language.promptName} and its expected script`,
+        message: 'Source narration must remain in clear English',
       });
     }
   });
 
-  const revision = await generateStructured({
+  const revision = await generateLocalStructured({
     stage: 'video-narration-duration-editor',
-    model: serverEnv.modelForSkill('video-planner') ?? serverEnv.openRouterModel,
-    effort: 'low',
-    requestTimeoutMs: 25_000,
-    maxTransientRetries: 0,
-    maxSchemaAttempts: 1,
+    timeoutMs: 60_000,
     schema: revisionSchema,
     systemPrompt: `You are a precise educational narration editor.
 
 ${direction === 'shorten' ? 'Shorten' : 'Expand'} the narration so synthesized speech fits a ${input.targetDurationSeconds}-second lesson. Keep exactly one narration entry per scene and preserve the meaning of its supplied audited fact.
 
 Rules:
-- Write only in ${language.promptName}, using its natural script. Do not translate into another language.
+- Write only in clear English. A dedicated local model translates the approved narration into ${language.promptName} afterward.
 - Keep the narration conversational, factual, and age-appropriate. Never add a fact, number, name, example, claim, or conclusion that is absent from the audited facts.
 - Each scene should be one concise sentence that can be spoken clearly in its 7.5-second slot.
 - Avoid introductions, greetings, repetition, filler, calls to action, and grand claims.
@@ -263,6 +209,31 @@ ${JSON.stringify(plan.scenes.map((scene) => ({
       narration: revision.scenes[index].narration,
     })),
   };
+}
+
+export async function translateLessonPlan(
+  plan: LessonPlan,
+  languageCode: VideoLanguageCode,
+): Promise<LessonPlan> {
+  if (languageCode === 'en-IN') return plan;
+  const language = videoLanguage(languageCode);
+  const translations = await translateLocalTexts({
+    languageCode,
+    texts: [plan.title, ...plan.scenes.map((scene) => scene.narration)],
+  });
+  const translated = {
+    ...plan,
+    title: translations[0],
+    scenes: plan.scenes.map((scene, index) => ({
+      ...scene,
+      narration: translations[index + 1],
+    })),
+  };
+  const spokenText = translated.scenes.map((scene) => scene.narration).join(' ');
+  if (!narrationUsesSelectedLanguage(spokenText, languageCode)) {
+    throw new Error(`Local translation did not return ${language.promptName} in its expected script.`);
+  }
+  return LessonPlanSchema.parse(translated);
 }
 
 export function scenesWithSharedVisualContext(plan: LessonPlan): LessonPlan['scenes'] {
