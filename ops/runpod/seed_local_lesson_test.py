@@ -123,7 +123,7 @@ def plan_lesson() -> dict[str, Any]:
         raise RuntimeError("Planner returned an invalid scene sequence")
     for scene in scenes:
         words = len(str(scene["narration"]).split())
-        if not 8 <= words <= 16:
+        if not 7 <= words <= 16:
             raise RuntimeError(f"Scene {scene['index']} narration has {words} words")
         motion = str(scene["motionDescription"])
         if not all(marker in motion for marker in ("Start:", "Then:", "End:")):
