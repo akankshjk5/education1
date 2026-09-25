@@ -106,8 +106,10 @@ def plan_lesson() -> dict[str, Any]:
             "text-free concrete metaphors or mechanisms, never classrooms, teachers, students, "
             "blackboards, code, equations, letters, numbers, captions, labels, logos or UI. Do not "
             "ask an image model to count exact repeated objects. Use a consistent premium 16:9 "
-            "educational-documentary style. Motion must preserve every object and only describe a "
-            "subtle camera move."
+            "educational motion-graphics style. Each visual is an opening animation keyframe with "
+            "all required objects already present. Every motionDescription must contain three "
+            "ordered beats written as Start:, Then:, and End:. The objects must visibly move or "
+            "change state to demonstrate the fact; camera motion is secondary and never sufficient."
         ),
         "userPrompt": (
             "Plan a Class 8 Mathematics lesson about algebra for Kannada narration. The English "
@@ -123,6 +125,9 @@ def plan_lesson() -> dict[str, Any]:
         words = len(str(scene["narration"]).split())
         if not 8 <= words <= 16:
             raise RuntimeError(f"Scene {scene['index']} narration has {words} words")
+        motion = str(scene["motionDescription"])
+        if not all(marker in motion for marker in ("Start:", "Then:", "End:")):
+            raise RuntimeError(f"Scene {scene['index']} lacks ordered animation beats")
     return plan
 
 
@@ -209,15 +214,20 @@ def seed(plan: dict[str, Any], audio: bytes, audio_duration: float) -> str:
             "show only the topic objects and spatial relationships. No exact object counting."
         )
         image_prompt = (
-            f"Educational visual for Class 8 Mathematics about algebra. Exact concept: "
-            f"{scene['fact']}. {visual} One coherent widescreen 16:9 composition, accurate "
-            "physical details, clean subject separation. Absolutely no classroom, people, "
+            f"Opening keyframe for a genuinely animated Class 8 Mathematics sequence about "
+            f"algebra. Exact concept: {scene['fact']}. {visual} Premium editorial motion-graphics "
+            "composition with layered tactile objects, clear foreground and background separation, "
+            "accurate relationships, and every object required for the coming action already "
+            "visible. One coherent widescreen 16:9 frame. Absolutely no classroom, people, "
             "blackboard, code, equations, letters, numbers, captions, labels, logo, watermark, "
             "UI, or visible text."
         )
         video_prompt = (
-            "Preserve this exact educational image without changing any object. Apply only a "
-            f"gentle stable camera move. Intended motion: {scene['motionDescription']}"
+            "Create a true animated explanation of this algebra concept, not a slideshow or "
+            "moving photograph. Preserve object identity and the source composition, then execute "
+            f"every ordered action beat: {scene['motionDescription']}. The subject action must "
+            "visibly demonstrate the fact; camera motion is secondary. Use smooth purposeful "
+            "motion, stable geometry, and the specified conceptually correct final state."
         )
         scene_rows.append(
             {
@@ -241,13 +251,15 @@ def seed(plan: dict[str, Any], audio: bytes, audio_duration: float) -> str:
                 "prompt": image_prompt,
                 "negative_prompt": (
                     "text, writing, letters, numbers, equations, captions, labels, classroom, "
-                    "teacher, blackboard, projector, watermark, logo, duplicate subjects, low quality"
+                    "teacher, blackboard, projector, watermark, logo, duplicate subjects, low "
+                    "quality, static slide, presentation card"
                 ),
                 "parameters": {
                     "width": 1024,
                     "height": 576,
                     "steps": 8,
                     "sceneIndex": scene["index"],
+                    "seed": 1000 + int(scene["index"]),
                 },
             }
         )
