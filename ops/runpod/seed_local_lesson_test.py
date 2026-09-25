@@ -95,7 +95,7 @@ def plan_lesson() -> dict[str, Any]:
     }
     payload = {
         "stage": "video-lesson-planner-e2e",
-        "maxNewTokens": 2200,
+        "maxNewTokens": 2400,
         "jsonSchema": schema,
         "systemPrompt": (
             "You are a careful Class 8 Indian-school curriculum editor. Create exactly eight "
@@ -111,24 +111,45 @@ def plan_lesson() -> dict[str, Any]:
             "ordered beats written as Start:, Then:, and End:. The objects must visibly move or "
             "change state to demonstrate the fact; camera motion is secondary and never sufficient."
         ),
-        "userPrompt": (
-            "Plan a Class 8 Mathematics lesson about algebra for Kannada narration. The English "
-            "source must be factually precise and the full story must fit 60 seconds."
-        ),
     }
-    result = local_post(PLANNER_URL, "/structured", payload)
-    plan = result["output"]
-    scenes = plan.get("scenes") or []
-    if len(scenes) != 8 or any(scene.get("index") != index for index, scene in enumerate(scenes, 1)):
-        raise RuntimeError("Planner returned an invalid scene sequence")
-    for scene in scenes:
-        words = len(str(scene["narration"]).split())
-        if not 7 <= words <= 16:
-            raise RuntimeError(f"Scene {scene['index']} narration has {words} words")
-        motion = str(scene["motionDescription"])
-        if not all(marker in motion for marker in ("Start:", "Then:", "End:")):
-            raise RuntimeError(f"Scene {scene['index']} lacks ordered animation beats")
-    return plan
+    base_request = (
+        "Plan a Class 8 Mathematics lesson about algebra for Kannada narration. The English "
+        "source must be factually precise and the full story must fit 60 seconds."
+    )
+    correction = ""
+    errors: list[str] = []
+    for _attempt in range(3):
+        payload["userPrompt"] = base_request + correction
+        result = local_post(PLANNER_URL, "/structured", payload)
+        plan = result["output"]
+        scenes = plan.get("scenes") or []
+        errors = []
+        if len(scenes) != 8 or any(
+            item.get("index") != index for index, item in enumerate(scenes, 1)
+        ):
+            errors.append("Return exactly eight sequential scenes numbered 1 through 8.")
+        else:
+            for item in scenes:
+                words = len(str(item["narration"]).split())
+                if not 8 <= words <= 16:
+                    errors.append(
+                        f"Scene {item['index']} narration has {words} words; rewrite it to 8-16."
+                    )
+                motion = str(item["motionDescription"])
+                if not all(marker in motion for marker in ("Start:", "Then:", "End:")):
+                    errors.append(
+                        f"Scene {item['index']} motion must contain Start:, Then:, and End:."
+                    )
+        if not errors:
+            return plan
+        correction = (
+            "\n\nThe previous complete JSON failed these checks:\n- "
+            + "\n- ".join(errors)
+            + "\nCorrect every issue while preserving factual accuracy, then return the complete "
+            "lesson JSON again. Previous JSON:\n"
+            + json.dumps(plan, ensure_ascii=False)
+        )
+    raise RuntimeError("Planner validation failed after three attempts: " + "; ".join(errors))
 
 
 def translate_plan(plan: dict[str, Any]) -> dict[str, Any]:
