@@ -80,6 +80,9 @@ export async function planLesson(input: {
     stage: 'video-lesson-planner',
     model: plannerModel,
     effort: 'medium',
+    requestTimeoutMs: 60_000,
+    maxTransientRetries: 0,
+    maxSchemaAttempts: 1,
     schema: planSchema,
     systemPrompt: `You are a careful school curriculum editor and visual lesson planner.
 
@@ -138,14 +141,15 @@ Subject: ${input.subject}
 Topic: ${input.topic}
 Narration language: ${language.label}
 Target duration: ${input.targetDurationSeconds} seconds`,
+    requestTimeoutMs: withSearch ? 25_000 : 20_000,
+    maxTransientRetries: 0,
+    maxSchemaAttempts: 1,
     ...(withSearch ? {
       search: {
         engine: 'exa' as const,
         maxResults: 3,
         searchPrompt: `Verify stable, age-appropriate curriculum facts for Class ${input.classLevel} ${input.subject}: ${input.topic}`,
       },
-      requestTimeoutMs: 60_000,
-      maxTransientRetries: 0,
     } : {}),
   });
 
@@ -157,7 +161,15 @@ Target duration: ${input.targetDurationSeconds} seconds`,
       '[video-lesson-verifier] grounded review unavailable; using bounded model-only review',
       error instanceof Error ? error.message : String(error),
     );
-    plan = await verifyPlan(false);
+    try {
+      plan = await verifyPlan(false);
+    } catch (fallbackError) {
+      console.warn(
+        '[video-lesson-verifier] bounded fallback unavailable; using validated self-audited draft',
+        fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+      );
+      plan = draft;
+    }
   }
 
   return {
@@ -218,6 +230,9 @@ export async function adjustNarrationToFit(
     stage: 'video-narration-duration-editor',
     model: serverEnv.modelForSkill('video-planner') ?? serverEnv.openRouterModel,
     effort: 'low',
+    requestTimeoutMs: 25_000,
+    maxTransientRetries: 0,
+    maxSchemaAttempts: 1,
     schema: revisionSchema,
     systemPrompt: `You are a precise educational narration editor.
 

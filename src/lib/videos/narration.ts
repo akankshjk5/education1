@@ -58,6 +58,10 @@ export async function synthesizeNarration(
     model,
     contents: `Synthesize speech only. Do not read these directions aloud. Use a warm, clear, knowledgeable Indian educator voice. Speak only in ${language.promptName}, using accurate pronunciation. Use a ${pace === 'brisk' ? 'brisk but clearly understandable' : 'steady, natural'} pace suitable for classroom learning. Do not add, translate, summarize, repeat, or omit any words.\n\nTRANSCRIPT BEGINS:\n${transcript}\nTRANSCRIPT ENDS.`,
     config: {
+      httpOptions: {
+        timeout: 90_000,
+        retryOptions: { attempts: 1 },
+      },
       responseModalities: [Modality.AUDIO],
       speechConfig: {
         languageCode,

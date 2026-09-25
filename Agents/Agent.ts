@@ -329,6 +329,8 @@ export async function generateStructured<T>(
     requestTimeoutMs?: number;
     /** Overrides transport retries; schema-correction retries remain separate. */
     maxTransientRetries?: number;
+    /** Bounds schema attempts for latency-sensitive stages. Defaults to 2. */
+    maxSchemaAttempts?: 1 | 2;
   },
 ): Promise<T> {
   const {
@@ -342,6 +344,7 @@ export async function generateStructured<T>(
     search,
     requestTimeoutMs,
     maxTransientRetries,
+    maxSchemaAttempts = 2,
   } = options;
 
   const jsonSchema = describeSchema(schema as z.ZodType<unknown>);
@@ -365,7 +368,7 @@ export async function generateStructured<T>(
 
   let lastError = '';
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < maxSchemaAttempts; attempt++) {
     const sent =
       attempt === 0
         ? messages
@@ -434,7 +437,7 @@ export async function generateStructured<T>(
   }
 
   throw new AgentError(
-    `Model output failed schema validation after 2 attempts: ${lastError}`,
+    `Model output failed schema validation after ${maxSchemaAttempts} attempt${maxSchemaAttempts === 1 ? '' : 's'}: ${lastError}`,
     'STRUCTURED_OUTPUT_INVALID',
     stage,
   );

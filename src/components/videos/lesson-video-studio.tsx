@@ -193,14 +193,13 @@ export function LessonVideoStudio({ initialProjects }: { initialProjects: Lesson
 }
 
 function PreparationProgress({ elapsedSeconds }: { elapsedSeconds: number }) {
-  const percent = Math.min(14, 2 + Math.floor(elapsedSeconds / 12));
   return (
     <div className="mt-3 rounded-lg bg-indigo-50 p-3 text-xs text-indigo-900 dark:bg-indigo-500/10 dark:text-indigo-200">
       <div className="flex items-center justify-between gap-3">
-        <span>Grounded fact review, language check and voice-over fitting</span>
-        <span className="shrink-0 font-semibold">{percent}%</span>
+        <span>Planning, bounded fact review and voice-over fitting</span>
+        <span className="shrink-0 font-semibold">Pre-GPU setup</span>
       </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-indigo-950/10 dark:bg-white/10"><div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${percent}%` }} /></div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-indigo-950/10 dark:bg-white/10"><div className="h-full w-1/3 animate-pulse rounded-full bg-indigo-500" /></div>
       <p className="mt-2 text-indigo-700 dark:text-indigo-300">Elapsed {formatElapsed(elapsedSeconds)} · this setup usually takes 1–3 minutes and varies by topic.</p>
     </div>
   );
