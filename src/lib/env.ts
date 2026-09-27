@@ -46,6 +46,12 @@ export const serverEnv = {
   get localVideoTranslationUrl() {
     return process.env.LOCAL_VIDEO_TRANSLATION_URL ?? 'http://127.0.0.1:18082';
   },
+  get localVideoComfyUrl() {
+    return process.env.LOCAL_VIDEO_COMFY_URL ?? 'http://127.0.0.1:8188';
+  },
+  get localVideoWorkerUrl() {
+    return process.env.LOCAL_VIDEO_WORKER_URL ?? 'http://127.0.0.1:8090';
+  },
   get supabaseServiceRoleKey() {
     return required('SUPABASE_SERVICE_ROLE_KEY', process.env.SUPABASE_SERVICE_ROLE_KEY);
   },

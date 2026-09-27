@@ -8,11 +8,16 @@ does not need a second dependency environment for the worker itself.
 from __future__ import annotations
 
 import argparse
+import base64
+import csv
 import contextlib
+import io
 import json
 import mimetypes
 import os
+import re
 import signal
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -91,14 +96,39 @@ class QueueClient:
         )
         self.supabase_url = supabase_url.rstrip("/")
 
+    def owner_for_project(self, project_id: str) -> str:
+        query = urllib.parse.urlencode({
+            "select": "owner_id", "id": f"eq.{project_id}", "limit": "1",
+        })
+        rows = self.client.request("GET", f"/rest/v1/lesson_video_projects?{query}")
+        if not isinstance(rows, list) or len(rows) != 1 or not rows[0].get("owner_id"):
+            raise WorkerError("owner_not_found", "The reference lesson project has no owner")
+        return str(rows[0]["owner_id"])
+
     def rpc(self, name: str, payload: dict[str, Any]) -> Any:
         return self.client.request("POST", f"/rest/v1/rpc/{name}", payload)
 
-    def claim(self, worker_id: str) -> dict[str, Any] | None:
-        result = self.rpc("claim_lesson_video_job", {"p_worker_id": worker_id})
+    def claim(
+        self, worker_id: str, project_ids: list[str] | None = None,
+        owner_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        if project_ids and owner_id:
+            raise ValueError("Choose project IDs or an owner ID, not both")
+        if owner_id:
+            result = self.rpc("claim_lesson_video_job_for_owner", {
+                "p_worker_id": worker_id, "p_owner_id": owner_id,
+            })
+        elif project_ids:
+            result = self.rpc("claim_lesson_video_job_for_projects", {
+                "p_worker_id": worker_id, "p_project_ids": project_ids,
+            })
+        else:
+            result = self.rpc("claim_lesson_video_job", {"p_worker_id": worker_id})
         if isinstance(result, list) and result:
             result[0]["_queue"] = "lesson"
             return result[0]
+        if project_ids or owner_id:
+            return None
         result = self.rpc("claim_deck_media_job", {"p_worker_id": worker_id})
         if isinstance(result, list) and result:
             result[0]["_queue"] = "deck"
@@ -140,7 +170,10 @@ class QueueClient:
         if not ok:
             raise WorkerError("stale_job", "Job ownership changed before completion")
 
-    def fail(self, job: dict[str, Any], worker_id: str, code: str, message: str) -> None:
+    def fail(
+        self, job: dict[str, Any], worker_id: str, code: str, message: str,
+        retry_delay_seconds: int = 30,
+    ) -> None:
         self.rpc(
             self._rpc_name(job, "fail"),
             {
@@ -148,7 +181,7 @@ class QueueClient:
                 "p_worker_id": worker_id,
                 "p_error_code": code,
                 "p_error_message": message[:2000],
-                "p_retry_delay_seconds": 30,
+                "p_retry_delay_seconds": retry_delay_seconds,
             },
         )
 
@@ -160,7 +193,9 @@ class QueueClient:
             "POST",
             f"/storage/v1/object/{bucket}/{encoded_name}",
             data=path.read_bytes(),
-            headers={"Content-Type": content_type, "x-upsert": "false"},
+            # A retried job re-uploads under the same object name; overwrite it
+            # instead of failing with "Duplicate".
+            headers={"Content-Type": content_type, "x-upsert": "true"},
             timeout=300,
         )
         return f"{self.supabase_url}/storage/v1/object/public/{bucket}/{encoded_name}"
@@ -196,6 +231,25 @@ class QueueClient:
         project_query = urllib.parse.urlencode({
             "id": f"eq.{scenes[0]['project_id']}",
             "select": "class_level,subject,topic",
+            "limit": "1",
+        })
+        projects = self.client.request("GET", f"/rest/v1/lesson_video_projects?{project_query}")
+        if not projects:
+            raise WorkerError("missing_project", "Lesson project was not found")
+        return {**projects[0], **scenes[0]}
+
+    def lesson_render_context(self, scene_id: str) -> dict[str, Any]:
+        scene_query = urllib.parse.urlencode({
+            "id": f"eq.{scene_id}",
+            "select": "scene_index,duration_seconds,caption,overlay,project_id",
+            "limit": "1",
+        })
+        scenes = self.client.request("GET", f"/rest/v1/lesson_video_scenes?{scene_query}")
+        if not scenes:
+            raise WorkerError("missing_scene", "Lesson scene was not found")
+        project_query = urllib.parse.urlencode({
+            "id": f"eq.{scenes[0]['project_id']}",
+            "select": "language_code,target_duration_seconds",
             "limit": "1",
         })
         projects = self.client.request("GET", f"/rest/v1/lesson_video_projects?{project_query}")
@@ -370,6 +424,27 @@ def load_workflow(job: dict[str, Any], workflow_dir: Path, comfy_input: Path) ->
     frames = wan_frame_count(duration_seconds, fps)
     prompt = str(job["prompt"])
     negative_prompt = str(job.get("negative_prompt", ""))
+    if job.get("kind") == "image" and job.get("_queue") == "lesson":
+        # Z-Image Turbo runs without CFG (the negative prompt is zeroed), so it
+        # draws whatever the positive prompt names. Describe only what should be
+        # visible; never list unwanted things such as "infographic" or "text".
+        attempt = max(1, int(job.get("attempts") or 1))
+        if (job.get("parameters") or {}).get("visualMode") == "anatomical":
+            prompt += (
+                " One coherent scientifically plausible three-dimensional anatomical "
+                "visualization, with clear cellular or organ structures, visible depth, "
+                "and one central biological action."
+            )
+        else:
+            prompt += (
+                " One single photograph of one physical subject, centered and fully visible, "
+                "with smooth plain surfaces and an uncluttered seamless backdrop."
+            )
+        if attempt > 1:
+            prompt += (
+                " Make the composition even simpler: fewer objects, larger in frame, bare "
+                "matte surfaces, soft even light."
+            )
     if job.get("kind") == "video" and job.get("_queue") == "lesson":
         prompt += (
             " This must be a genuinely animated explanatory shot: the subject and concept "
@@ -385,7 +460,8 @@ def load_workflow(job: dict[str, Any], workflow_dir: Path, comfy_input: Path) ->
         "__PROMPT__": prompt,
         "__NEGATIVE_PROMPT__": negative_prompt,
         "__SOURCE_IMAGE__": source_name,
-        "__SEED__": int(parameters.get("seed", 42)),
+        "__SEED__": int(parameters.get("seed", 42))
+        + (max(0, int(job.get("attempts") or 1) - 1) * 7919),
         "__WIDTH__": int(parameters.get("width", 1024 if job["kind"] == "image" else 832)),
         "__HEIGHT__": int(parameters.get("height", 576 if job["kind"] == "image" else 480)),
         "__FPS__": fps,
@@ -430,6 +506,276 @@ def validate_output(path: Path, kind: str) -> dict[str, Any]:
         raise WorkerError("invalid_video", "Video has no playable stream or duration")
     metadata.update({"duration": duration, **streams[0]})
     return metadata
+
+
+def parse_tesseract_tsv(tsv: str, minimum_confidence: float = 55.0) -> list[str]:
+    """Return confident text-like tokens while ignoring isolated OCR noise."""
+    tokens: list[str] = []
+    for row in csv.DictReader(io.StringIO(tsv), delimiter="\t"):
+        text = (row.get("text") or "").strip()
+        try:
+            confidence = float(row.get("conf") or -1)
+        except ValueError:
+            continue
+        compact = re.sub(r"[^\w]", "", text, flags=re.UNICODE)
+        if confidence < minimum_confidence or len(compact) < 2:
+            continue
+        if any(character.isalpha() for character in compact) or any(
+            character.isdigit() for character in compact
+        ):
+            tokens.append(text[:80])
+    return tokens
+
+
+def tesseract_text_boxes(tsv: str, minimum_confidence: float = 55.0) -> list[tuple[int, int, int, int]]:
+    """Bounding boxes (left, top, width, height) of the tokens parse_tesseract_tsv keeps."""
+    boxes: list[tuple[int, int, int, int]] = []
+    for row in csv.DictReader(io.StringIO(tsv), delimiter="\t"):
+        text = (row.get("text") or "").strip()
+        try:
+            confidence = float(row.get("conf") or -1)
+            box = tuple(int(row[key]) for key in ("left", "top", "width", "height"))
+        except (KeyError, TypeError, ValueError):
+            continue
+        compact = re.sub(r"[^\w]", "", text, flags=re.UNICODE)
+        if confidence >= minimum_confidence and len(compact) >= 2:
+            boxes.append(box)  # type: ignore[arg-type]
+    return boxes
+
+
+def blur_text_regions(path: Path, boxes: list[tuple[int, int, int, int]]) -> int:
+    """Soften stray generated lettering in place so the scene can continue."""
+    from PIL import Image, ImageFilter
+
+    with Image.open(path) as source:
+        image = source.convert("RGB")
+    for left, top, width, height in boxes:
+        pad_x, pad_y = int(width * 0.3) + 6, int(height * 0.5) + 6
+        region = (
+            max(0, left - pad_x), max(0, top - pad_y),
+            min(image.width, left + width + pad_x), min(image.height, top + height + pad_y),
+        )
+        patch = image.crop(region).filter(ImageFilter.GaussianBlur(max(8, height // 2)))
+        image.paste(patch, region[:2])
+    image.save(path, format="PNG")
+    return len(boxes)
+
+
+def _strong_edge_bands(path: Path) -> tuple[int, int]:
+    """Detect repeated full-width/height separators typical of generated panel sheets."""
+    from PIL import Image
+
+    with Image.open(path) as source:
+        image = source.convert("L").resize((256, 144))
+    pixels = image.load()
+    width, height = image.size
+
+    vertical = [
+        x
+        for x in range(max(1, int(width * 0.05)), int(width * 0.95))
+        if sum(abs(pixels[x, y] - pixels[x - 1, y]) >= 30 for y in range(height)) / height
+        >= 0.45
+    ]
+    horizontal = [
+        y
+        for y in range(max(1, int(height * 0.05)), int(height * 0.95))
+        if sum(abs(pixels[x, y] - pixels[x, y - 1]) >= 30 for x in range(width)) / width
+        >= 0.45
+    ]
+
+    def clusters(values: list[int]) -> int:
+        groups = 0
+        previous: int | None = None
+        for value in values:
+            if previous is None or value - previous > 3:
+                groups += 1
+            previous = value
+        return groups
+
+    return clusters(vertical), clusters(horizontal)
+
+
+def validate_lesson_storyboard(path: Path, final_attempt: bool = False) -> dict[str, Any]:
+    """Reject a keyframe that resembles a slide or contains text so it is regenerated.
+
+    On the job's final attempt the scene must not fail the whole lesson: stray
+    lettering is blurred in place and a panel-like frame is accepted with a
+    warning, both recorded in the output metadata.
+    """
+    tesseract = shutil.which("tesseract")
+    if not tesseract:
+        raise WorkerError(
+            "storyboard_qa_unavailable",
+            "tesseract is required for generated lesson storyboard validation",
+        )
+    try:
+        result = subprocess.run(
+            [tesseract, str(path), "stdout", "-l", "eng", "--psm", "11", "tsv"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=45,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise WorkerError("storyboard_qa_failed", f"OCR validation failed: {error}") from error
+
+    text_tokens = parse_tesseract_tsv(result.stdout)
+    vertical_bands, horizontal_bands = _strong_edge_bands(path)
+    panel_like = vertical_bands >= 3 or horizontal_bands >= 3 or (
+        vertical_bands + horizontal_bands >= 5
+    )
+    failures: list[str] = []
+    # Organic texture (beans, gravel, foliage) occasionally yields one short
+    # confident token. Real headings or fake writing yield a word of three or
+    # more characters, or several tokens.
+    word_like = [
+        token for token in text_tokens
+        if len(re.sub(r"[^\w]", "", token, flags=re.UNICODE)) >= 3
+    ]
+    if word_like or len(text_tokens) >= 2:
+        failures.append(f"visible text detected: {', '.join(text_tokens[:8])}")
+    if panel_like:
+        failures.append(
+            f"multi-panel layout detected: {vertical_bands} vertical/{horizontal_bands} horizontal bands"
+        )
+    if failures and not final_attempt:
+        raise WorkerError("storyboard_quality_rejected", "; ".join(failures))
+    fallback: dict[str, Any] = {}
+    if failures:
+        fallback["final_attempt_fallback"] = "; ".join(failures)
+        if word_like or len(text_tokens) >= 2:
+            fallback["text_regions_blurred"] = blur_text_regions(
+                path, tesseract_text_boxes(result.stdout)
+            )
+    return {
+        **fallback,
+        "passed": True,
+        "ocr": "tesseract-eng",
+        "detected_text_tokens": len(text_tokens),
+        "vertical_edge_bands": vertical_bands,
+        "horizontal_edge_bands": horizontal_bands,
+    }
+
+
+HOUSE_STYLE_MARKER = " Vintage editorial photograph"
+
+
+def scene_description_from_prompt(prompt: str) -> str:
+    """The keyframe prompt is the planner's visual description plus a fixed style."""
+    return prompt.split(HOUSE_STYLE_MARKER, 1)[0].strip()[:1200]
+
+
+def _vision_request(image_bytes: bytes, description: str, mode: str) -> dict[str, Any] | None:
+    """POST one image to the local vision service; None when it is unavailable."""
+    url = os.environ.get("LESSON_VISION_URL", "http://127.0.0.1:18083").rstrip("/") + "/check"
+    body = json.dumps({
+        "description": description,
+        "mode": mode,
+        "imageBase64": base64.b64encode(image_bytes).decode("ascii"),
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"Content-Type": "application/json", "User-Agent": "LuminaMediaWorker/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            return json.loads(response.read())
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        print(f"vision check unavailable: {error}", file=sys.stderr, flush=True)
+        return None
+
+
+def clip_description_from_prompt(prompt: str) -> str:
+    """The clip prompt is the keyframe description, then the motion directions."""
+    return prompt.split(" Animate the subject physically:", 1)[0].strip()[:1200]
+
+
+def extract_frame(path: Path, fraction: float) -> bytes:
+    duration = probe_video_duration(path)
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-v", "error", "-ss", f"{duration * fraction:.3f}", "-i", str(path),
+             "-frames:v", "1", "-f", "image2", "-c:v", "png", "pipe:1"],
+            check=True, capture_output=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise WorkerError("frame_extract_failed", f"Could not read a clip frame: {error}") from error
+    return result.stdout
+
+
+def vision_check_clip(path: Path, description: str, final_attempt: bool) -> dict[str, Any]:
+    """Catch animation that melts, duplicates or replaces the subject, or grows text.
+
+    Frames from the middle and the end of the Wan clip are checked. A failing
+    clip is re-animated with a new seed; the final attempt is accepted with a
+    warning so one clip never fails a lesson.
+    """
+    if os.environ.get("LESSON_VISION_MODE", "check").lower() == "off":
+        return {"clip_vision": "disabled"}
+    problems: list[str] = []
+    for fraction in (0.5, 0.95):
+        verdict = _vision_request(extract_frame(path, fraction), description, "clip")
+        if verdict is None:
+            return {"clip_vision": "unavailable"}
+        if not verdict.get("passed", True):
+            reasons = [
+                name for name, bad in (
+                    ("subject lost", not verdict.get("shows_subject", True)),
+                    ("deformed", verdict.get("deformed", False)),
+                    ("writing appeared", verdict.get("has_writing", False)),
+                    ("unsafe content", verdict.get("unsafe", False)),
+                ) if bad
+            ]
+            if verdict.get("unsafe", False):
+                raise WorkerError("clip_quality_rejected", f"clip check: unsafe content ({verdict.get('reason', '')})")
+            problems.append(f"{int(fraction * 100)}%: {', '.join(reasons) or 'rejected'} ({verdict.get('reason', '')})")
+    if problems:
+        message = "clip check: " + "; ".join(problems)
+        if not final_attempt:
+            raise WorkerError("clip_quality_rejected", message)
+        return {"clip_vision": "accepted_on_final_attempt", "clip_warning": message}
+    return {"clip_vision": "passed"}
+
+
+def vision_check_keyframe(path: Path, description: str, final_attempt: bool) -> dict[str, Any]:
+    """Ask the local vision model whether the keyframe shows its scene cleanly.
+
+    A mismatch regenerates the image; the final attempt is accepted with a
+    warning so one picture never fails a lesson. When the vision service is
+    unavailable the check is skipped: the text gate above still applies.
+    """
+    if os.environ.get("LESSON_VISION_MODE", "check").lower() == "off":
+        return {"vision": "disabled"}
+    url = os.environ.get("LESSON_VISION_URL", "http://127.0.0.1:18083").rstrip("/") + "/check"
+    body = json.dumps({
+        "description": description,
+        "imageBase64": base64.b64encode(path.read_bytes()).decode("ascii"),
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"Content-Type": "application/json", "User-Agent": "LuminaMediaWorker/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            verdict = json.loads(response.read())
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        print(f"vision check unavailable: {error}", file=sys.stderr, flush=True)
+        return {"vision": "unavailable"}
+    if not verdict.get("passed", True):
+        problems = [
+            name for name, bad in (
+                ("subject not shown", not verdict.get("shows_subject", True)),
+                ("not a single photo", not verdict.get("single_photo", True)),
+                ("writing visible", verdict.get("has_writing", False)),
+                ("unsafe content", verdict.get("unsafe", False)),
+            ) if bad
+        ]
+        message = f"vision check: {', '.join(problems) or 'rejected'} ({verdict.get('reason', '')})"
+        # Unsafe imagery is never accepted, not even on the final attempt.
+        if not final_attempt or verdict.get("unsafe", False):
+            raise WorkerError("storyboard_quality_rejected", message)
+        return {"vision": "accepted_on_final_attempt", "vision_warning": message}
+    return {"vision": "passed", "vision_reason": str(verdict.get("reason", ""))[:200]}
 
 
 def normalize_video(path: Path) -> Path:
@@ -576,6 +922,41 @@ def uses_lesson_fact_card(job: dict[str, Any]) -> bool:
     )
 
 
+def uses_editorial_composite(job: dict[str, Any]) -> bool:
+    return (
+        job.get("kind") == "video"
+        and job.get("_queue") == "lesson"
+        and os.environ.get("LESSON_COMPOSITE_MODE", "editorial").lower() == "editorial"
+    )
+
+
+def composite_lesson_clip(
+    job: dict[str, Any], queue: QueueClient, raw_clip: Path, output_dir: Path,
+) -> tuple[Path, dict[str, Any]]:
+    """Wrap the genuinely animated Wan clip in the deterministic editorial scene."""
+    from lesson_compositor import CompositorError, render_editorial_scene
+
+    context = queue.lesson_render_context(str(job["scene_id"]))
+    target = int(context.get("target_duration_seconds") or 60)
+    output_path = output_dir / f"{job['id']}-editorial.mp4"
+    try:
+        metadata = render_editorial_scene(
+            raw_clip,
+            output_path,
+            caption=str(context.get("caption") or ""),
+            language_code=str(context.get("language_code") or "en-IN"),
+            overlay=context.get("overlay"),
+            scene_index=int(context["scene_index"]),
+            scene_count=8 if target == 60 else 12,
+            duration=float(context["duration_seconds"]),
+            fonts_dir=Path(os.environ.get("LESSON_FONTS_DIR", "/workspace/lumina-fonts")),
+            should_stop=lambda: STOP.is_set() or queue.cancelled(job),
+        )
+    except CompositorError as error:
+        raise WorkerError(error.code, str(error)) from error
+    return output_path, metadata
+
+
 def download_lesson_asset(url: str, destination: Path, max_bytes: int = 250 * 1024 * 1024) -> Path:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname:
@@ -612,44 +993,50 @@ def probe_video_duration(path: Path) -> float:
     return duration
 
 
+LESSON_WIDTH, LESSON_HEIGHT, LESSON_FPS = 1280, 720, 24
+LESSON_TRANSITION_SECONDS = 0.4
+
+
 def lesson_filter_graph(
     scenes: list[dict[str, Any]], clip_durations: list[float], target_duration: int,
     narration_duration: float | None = None,
 ) -> str:
+    """Join scene clips with overlapping page-slide transitions.
+
+    Each editorial clip already carries a held tail of LESSON_TRANSITION_SECONDS,
+    so scene N+1 slides in over that tail and every scene still starts exactly at
+    the sum of the preceding scene durations. The finished lesson is never shorter
+    than requested.
+    """
     if not scenes or len(scenes) != len(clip_durations):
         raise WorkerError("invalid_scene_count", "Scene metadata and clip counts do not match")
     filters: list[str] = []
-    transition_duration = min(
-        0.25,
-        min(float(scene["duration_seconds"]) for scene in scenes) / 4,
-    ) if len(scenes) > 1 else 0.0
-    video_labels: list[str] = []
+    overlap = LESSON_TRANSITION_SECONDS if len(scenes) > 1 else 0.0
     for position, (scene, source_duration) in enumerate(zip(scenes, clip_durations)):
         scene_duration = float(scene["duration_seconds"])
         if source_duration <= 0 or scene_duration <= 0:
             raise WorkerError("invalid_scene_duration", "Scene durations must be positive")
-        speed_ratio = scene_duration / source_duration
-        label = f"v{position}"
-        transitions: list[str] = []
-        if position > 0:
-            transitions.append(
-                f"fade=t=in:st=0:d={transition_duration:.3f}:color=0xF4F1E8"
-            )
-        if position < len(scenes) - 1:
-            transitions.append(
-                f"fade=t=out:st={scene_duration - transition_duration:.3f}:"
-                f"d={transition_duration:.3f}:color=0xF4F1E8"
-            )
-        transition_filters = "" if not transitions else "," + ",".join(transitions)
+        clip_length = scene_duration + overlap
+        speed_ratio = clip_length / source_duration
         filters.append(
-            f"[{position}:v]setpts={speed_ratio:.8f}*PTS,fps=16,"
-            f"scale=832:480:force_original_aspect_ratio=decrease,"
-            f"pad=832:480:(ow-iw)/2:(oh-ih)/2:black,"
-            f"format=yuv420p,setsar=1,trim=duration={scene_duration:.3f},"
-            f"setpts=PTS-STARTPTS{transition_filters}[{label}]"
+            f"[{position}:v]setpts={speed_ratio:.8f}*PTS,fps={LESSON_FPS},"
+            f"scale={LESSON_WIDTH}:{LESSON_HEIGHT}:force_original_aspect_ratio=decrease,"
+            f"pad={LESSON_WIDTH}:{LESSON_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=0xEEE6D5,"
+            f"format=yuv420p,setsar=1,trim=duration={clip_length:.3f},"
+            f"setpts=PTS-STARTPTS,settb=AVTB[v{position}]"
         )
-        video_labels.append(f"[{label}]")
-    filters.append(f"{''.join(video_labels)}concat=n={len(video_labels)}:v=1:a=0[video]")
+    previous = "v0"
+    offset = 0.0
+    for position in range(1, len(scenes)):
+        offset += float(scenes[position - 1]["duration_seconds"])
+        label = "video" if position == len(scenes) - 1 else f"x{position}"
+        filters.append(
+            f"[{previous}][v{position}]xfade=transition=slideleft:"
+            f"duration={overlap:.3f}:offset={offset:.3f}[{label}]"
+        )
+        previous = label
+    if len(scenes) == 1:
+        filters.append("[v0]null[video]")
     audio_filters = f"[{len(scenes)}:a]aresample=48000,"
     if narration_duration and narration_duration > target_duration - 1:
         audio_filters += f"atempo={narration_duration / (target_duration - 1):.8f},"
@@ -695,8 +1082,8 @@ def assemble_lesson_video(
     command.extend([
         "-i", str(narration_path), "-filter_complex", filter_graph,
         "-map", "[video]", "-map", "[audio]", "-t", str(target_duration),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-        "-pix_fmt", "yuv420p", "-r", "16", "-movflags", "+faststart",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "19",
+        "-pix_fmt", "yuv420p", "-r", str(LESSON_FPS), "-movflags", "+faststart",
         "-c:a", "aac", "-b:a", "128k", str(output_path),
     ])
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
@@ -859,7 +1246,33 @@ def process_job(
         postprocess_started = time.monotonic()
         if job["kind"] == "video" and not stable_lesson_motion:
             path = normalize_video(path)
+        clip_quality: dict[str, Any] | None = None
+        if job["kind"] == "video" and job.get("_queue") == "lesson" and not stable_lesson_motion:
+            queue.heartbeat(job, worker_id, 86)
+            clip_quality = vision_check_clip(
+                path,
+                clip_description_from_prompt(str(job.get("prompt", ""))),
+                int(job.get("attempts") or 1) >= int(job.get("max_attempts") or 1),
+            )
+        composite_metadata: dict[str, Any] | None = None
+        if uses_editorial_composite(job) and not stable_lesson_motion:
+            queue.heartbeat(job, worker_id, 88)
+            path, composite_metadata = composite_lesson_clip(job, queue, path, output_dir)
         metadata = validate_output(path, str(job["kind"]))
+        if composite_metadata:
+            metadata["composite"] = composite_metadata
+        if clip_quality:
+            metadata["clip_quality"] = clip_quality
+        if (
+            job["kind"] == "image"
+            and job.get("_queue") == "lesson"
+            and not lesson_fact_card
+        ):
+            final_attempt = int(job.get("attempts") or 1) >= int(job.get("max_attempts") or 1)
+            metadata["storyboard_quality"] = validate_lesson_storyboard(path, final_attempt)
+            metadata["storyboard_quality"].update(vision_check_keyframe(
+                path, scene_description_from_prompt(str(job.get("prompt", ""))), final_attempt,
+            ))
         if stable_lesson_motion:
             metadata["motion_mode"] = "stable-ken-burns"
         if lesson_fact_card:
@@ -902,7 +1315,15 @@ def main() -> int:
     parser.add_argument("--once", action="store_true", help="Claim at most one job, then exit")
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     parser.add_argument("--health-port", type=int, default=8090)
+    parser.add_argument("--project-id", action="append", default=[],
+                        help="Only claim jobs for this lesson project; repeat for multiple projects")
+    parser.add_argument("--owner-id",
+                        help="Only claim active lesson jobs owned by this Clerk user")
+    parser.add_argument("--owner-project-id",
+                        help="Resolve the allowed owner from an existing lesson project")
     args = parser.parse_args()
+    if sum(bool(value) for value in (args.project_id, args.owner_id, args.owner_project_id)) > 1:
+        parser.error("Choose only one of --project-id, --owner-id or --owner-project-id")
 
     supabase_url = require_env("SUPABASE_URL")
     service_key = require_env("SUPABASE_SERVICE_ROLE_KEY")
@@ -917,15 +1338,24 @@ def main() -> int:
     worker_id = os.environ.get("MEDIA_WORKER_ID", f"runpod-{uuid.uuid4().hex[:12]}")
 
     queue = QueueClient(supabase_url, service_key)
+    allowed_owner = (
+        queue.owner_for_project(args.owner_project_id)
+        if args.owner_project_id else args.owner_id
+    )
     comfy = ComfyClient(comfy_url)
     server = health_server(args.health_port)
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_args: STOP.set())
 
     STATE["status"] = "idle"
+    STATE["scope"] = (
+        {"kind": "owner", "ownerId": allowed_owner} if allowed_owner
+        else {"kind": "projects", "projectIds": args.project_id} if args.project_id
+        else {"kind": "unscoped"}
+    )
     try:
         while not STOP.is_set():
-            job = queue.claim(worker_id)
+            job = queue.claim(worker_id, args.project_id or None, allowed_owner)
             if not job:
                 if args.once:
                     return 0
@@ -938,7 +1368,10 @@ def main() -> int:
                 STATE.update(status="idle", job_id=None, last_error=None)
             except WorkerError as error:
                 STATE.update(status="error", last_error=error.code)
-                queue.fail(job, worker_id, error.code, str(error))
+                # A rejected storyboard is regenerated immediately with a new seed;
+                # the attempt limit on the job bounds how often that can happen.
+                retry_delay = 2 if error.code in ("storyboard_quality_rejected", "clip_quality_rejected") else 30
+                queue.fail(job, worker_id, error.code, str(error), retry_delay)
                 print(f"job {job['id']} failed [{error.code}]: {error}", file=sys.stderr, flush=True)
                 STATE.update(status="idle", job_id=None)
             except Exception as error:  # final containment boundary for a long-running worker

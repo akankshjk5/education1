@@ -21,6 +21,9 @@ def rows(table: str, project_id: str, select: str, order: str = "") -> list[dict
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("project_id")
+    parser.add_argument("--content", action="store_true", help="Include reviewable facts and narration")
+    parser.add_argument("--prompts", action="store_true", help="Include stored image/video prompts")
+    parser.add_argument("--urls", action="store_true", help="Include saved scene media URLs")
     args = parser.parse_args()
     projects = rows(
         "lesson_video_projects",
@@ -32,7 +35,9 @@ def main() -> int:
     scenes = rows(
         "lesson_video_scenes",
         args.project_id,
-        "scene_index,status,image_url,video_url,error_message",
+        ("scene_index,status,image_url,video_url,error_message"
+         + (",fact,narration,caption,overlay" if args.content else "")
+         + (",image_prompt,video_prompt" if args.prompts else "")),
         "scene_index.asc",
     )
     jobs = rows(
@@ -49,7 +54,19 @@ def main() -> int:
                 "status": scene["status"],
                 "imageReady": bool(scene.get("image_url")),
                 "videoReady": bool(scene.get("video_url")),
+                **({"imageUrl": scene.get("image_url"), "videoUrl": scene.get("video_url")}
+                   if args.urls else {}),
                 "error": scene.get("error_message"),
+                **({
+                    "fact": scene.get("fact"),
+                    "narration": scene.get("narration"),
+                    "caption": scene.get("caption"),
+                    "overlay": scene.get("overlay"),
+                } if args.content else {}),
+                **({
+                    "imagePrompt": scene.get("image_prompt"),
+                    "videoPrompt": scene.get("video_prompt"),
+                } if args.prompts else {}),
             }
             for scene in scenes
         ],

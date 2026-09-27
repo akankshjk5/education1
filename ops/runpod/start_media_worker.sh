@@ -13,6 +13,12 @@ export WAN_FAST_STEPS="${WAN_FAST_STEPS:-20}"
 export LESSON_VIDEO_MOTION_MODE="${LESSON_VIDEO_MOTION_MODE:-wan}"
 export LESSON_IMAGE_MODE="${LESSON_IMAGE_MODE:-generated}"
 
+if [[ "${LESSON_IMAGE_MODE}" == "generated" ]] && ! command -v tesseract >/dev/null 2>&1; then
+  echo "tesseract is required for the generated-storyboard quality gate." >&2
+  echo "Install it with: apt-get update && apt-get install -y --no-install-recommends tesseract-ocr" >&2
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_ROOT="${RUNPOD_WORKSPACE_ROOT:-/root/lumina-runtime}"
 export WORKSPACE="${WORKSPACE:-${RUNTIME_ROOT}}"

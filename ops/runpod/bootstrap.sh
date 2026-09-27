@@ -63,6 +63,16 @@ if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; 
   fail "ffmpeg and ffprobe are required. Choose a RunPod image that includes them or install them before continuing."
 fi
 
+if ! command -v tesseract >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tesseract-ocr
+    rm -rf /var/lib/apt/lists/*
+  else
+    fail "tesseract is required for storyboard OCR validation. Install tesseract-ocr before continuing."
+  fi
+fi
+
 mkdir -p \
   "${MODEL_STORE_ROOT}/diffusion_models" \
   "${MODEL_STORE_ROOT}/text_encoders" \

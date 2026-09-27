@@ -37,10 +37,31 @@ export async function synthesizeNarration(
   transcript: string,
   languageCode: VideoLanguageCode,
   pace: 'natural' | 'brisk' = 'natural',
+  alignment?: { sceneTranscripts: string[]; targetDurationSeconds: number },
 ): Promise<NarrationAudio> {
   videoLanguage(languageCode);
-  const audio = await synthesizeLocalSpeech({ transcript, languageCode, pace });
+  if (alignment) {
+    if (
+      ![8, 12].includes(alignment.sceneTranscripts.length)
+      || alignment.sceneTranscripts.some((scene) => !scene.trim())
+    ) throw new Error('Narration alignment requires eight or twelve nonempty scenes.');
+    if (alignment.sceneTranscripts.join(' ').trim() !== transcript.trim()) {
+      throw new Error('Narration scenes do not match the approved transcript.');
+    }
+  }
+  const audio = await synthesizeLocalSpeech({
+    transcript,
+    languageCode,
+    pace,
+    ...(alignment ? {
+      sceneTranscripts: alignment.sceneTranscripts,
+      sceneDurationSeconds: alignment.targetDurationSeconds / alignment.sceneTranscripts.length,
+    } : {}),
+  });
   const durationSeconds = waveDurationSeconds(audio.wave);
   if (durationSeconds < 1) throw new Error('Local narration audio was unexpectedly short.');
+  if (alignment && Math.abs(durationSeconds - alignment.targetDurationSeconds) > 0.25) {
+    throw new Error('Local narration audio did not match the requested scene timing.');
+  }
   return { ...audio, durationSeconds };
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { requireUserIdOrThrow } from '@/lib/auth/session';
 import { createClient } from '@/lib/supabase/server';
+import { canWorkerProcessLesson } from '@/lib/videos/local-ai';
 import {
   LessonVideoProjectSchema,
   LessonVideoSceneSchema,
@@ -17,7 +18,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const id = idSchema.safeParse((await context.params).id);
     if (!id.success) return NextResponse.json({ error: 'Invalid video id.' }, { status: 400 });
     const supabase = await createClient();
-    const [{ data: project, error }, { data: scenes }, { data: jobs }] = await Promise.all([
+    const [projectResult, scenesResult, jobsResult] = await Promise.all([
       supabase
         .from('lesson_video_projects')
         .select('*')
@@ -32,17 +33,31 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       supabase
         .from('lesson_video_jobs')
         .select('kind, scene_id, status, progress, started_at, output_metadata')
-        .eq('project_id', id.data),
+        .eq('project_id', id.data)
+        .order('created_at', { ascending: true }),
     ]);
-    if (error || !project) return NextResponse.json({ error: 'Video not found.' }, { status: 404 });
+    if (projectResult.error || scenesResult.error || jobsResult.error) {
+      throw new Error('Could not read the video progress from the database.');
+    }
+    const project = projectResult.data;
+    if (!project) return NextResponse.json({ error: 'Video not found.' }, { status: 404 });
 
     const parsedProject = LessonVideoProjectSchema.parse(project);
-    const parsedScenes = LessonVideoSceneSchema.array().parse(scenes ?? []);
-    const snapshot = lessonProgressSnapshot(parsedProject, parsedScenes, jobs ?? []);
+    const parsedScenes = LessonVideoSceneSchema.array().parse(scenesResult.data ?? []);
+    const snapshot = lessonProgressSnapshot(parsedProject, parsedScenes, jobsResult.data ?? []);
+    const rendering = ['generating_images', 'generating_videos', 'assembling']
+      .includes(parsedProject.status);
+    const workerAvailable = rendering
+      ? await canWorkerProcessLesson(userId, parsedProject.id)
+      : true;
+    const hasProcessingJob = (jobsResult.data ?? []).some((job) => job.status === 'processing');
+    const waitingForWorker = rendering && !hasProcessingJob && !workerAvailable;
     return NextResponse.json({
       project: parsedProject,
       scenes: parsedScenes,
       ...snapshot,
+      etaSeconds: waitingForWorker ? null : snapshot.etaSeconds,
+      waitingForWorker,
     });
   } catch (error) {
     if (error instanceof Response) return error;

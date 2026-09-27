@@ -1412,6 +1412,22 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      complete_lesson_video_preparation: {
+        Args: {
+          p_project_id: string
+          p_title: string
+          p_learning_objective: string
+          p_narration_text: string
+          p_scenes: Json
+        }
+        Returns: Database["public"]["Tables"]["lesson_video_projects"]["Row"][]
+        SetofOptions: {
+          from: "*"
+          to: "lesson_video_projects"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       create_video_project: {
         Args: { p_class_level: number; p_subject: string; p_topic: string }
         Returns: {
@@ -1621,6 +1637,23 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "media_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      reserve_lesson_video_project: {
+        Args: {
+          p_class_level: number
+          p_subject: string
+          p_topic: string
+          p_language_code: string
+          p_language_name: string
+          p_target_duration_seconds: number
+        }
+        Returns: Database["public"]["Tables"]["lesson_video_projects"]["Row"][]
+        SetofOptions: {
+          from: "*"
+          to: "lesson_video_projects"
           isOneToOne: false
           isSetofReturn: true
         }

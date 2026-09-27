@@ -8,7 +8,9 @@ into Supabase for the normal media worker to render and assemble.
 
 from __future__ import annotations
 
+import argparse
 import json
+import re
 import os
 import sys
 import time
@@ -18,6 +20,7 @@ import urllib.request
 import uuid
 import wave
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 
@@ -65,7 +68,15 @@ def supabase(method: str, path: str, payload: Any | None = None, *, prefer: str 
     return request(method, f"{SUPABASE_URL}{path}", payload, headers=headers)
 
 
-def owner_id() -> str:
+def owner_id(project_id: str | None = None) -> str:
+    if project_id:
+        query = urllib.parse.urlencode({
+            "select": "owner_id", "id": f"eq.{project_id}", "limit": "1",
+        })
+        rows = supabase("GET", f"/rest/v1/lesson_video_projects?{query}")
+        if len(rows) == 1 and rows[0].get("owner_id"):
+            return str(rows[0]["owner_id"])
+        raise RuntimeError("The reference lesson project has no owner")
     for table in ("lesson_video_projects", "video_projects", "decks"):
         query = urllib.parse.urlencode(
             {"select": "owner_id", "order": "created_at.desc", "limit": "1"}
@@ -76,117 +87,342 @@ def owner_id() -> str:
     raise RuntimeError("No existing project owner was found for the end-to-end test")
 
 
-def plan_lesson() -> dict[str, Any]:
-    scene = {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["index", "fact", "narration", "visualDescription", "motionDescription"],
-        "properties": {
-            "index": {"type": "integer", "minimum": 1, "maximum": 8},
-            "fact": {"type": "string", "minLength": 10, "maxLength": 400},
-            "narration": {"type": "string", "minLength": 5, "maxLength": 500},
-            "visualDescription": {"type": "string", "minLength": 20, "maxLength": 500},
-            "motionDescription": {"type": "string", "minLength": 15, "maxLength": 800},
-        },
-    }
-    schema = {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["title", "learningObjective", "visualBible", "scenes"],
-        "properties": {
-            "title": {"type": "string", "minLength": 3, "maxLength": 200},
-            "learningObjective": {"type": "string", "minLength": 10, "maxLength": 500},
-            "visualBible": {"type": "string", "minLength": 40, "maxLength": 500},
-            "scenes": {"type": "array", "minItems": 8, "maxItems": 8, "items": scene},
-        },
-    }
-    payload = {
-        "stage": "video-lesson-planner-e2e",
-        "maxNewTokens": 2400,
-        "jsonSchema": schema,
-        "systemPrompt": (
-            "You are a careful Class 8 Indian-school curriculum editor. Create exactly eight "
-            "connected scenes for a 60-second algebra lesson. Use only stable textbook facts and "
-            "silently audit every claim. Source facts and narration must be plain English; each "
-            "narration is one natural sentence of 10-14 words. Teach variables, expressions, like "
-            "terms, substitution, and a one-step equation in logical order. Visuals must be "
-            "text-free concrete metaphors or mechanisms, never classrooms, teachers, students, "
-            "blackboards, code, equations, letters, numbers, captions, labels, logos or UI. Do not "
-            "ask an image model to count exact repeated objects. Use a consistent premium 16:9 "
-            "educational motion-graphics style. Each visual is an opening animation keyframe with "
-            "all required objects already present. Every motionDescription must contain three "
-            "ordered beats written as Start:, Then:, and End:. The objects must visibly move or "
-            "change state to demonstrate the fact; camera motion is secondary and never sufficient."
-        ),
-    }
-    base_request = (
-        "Plan a Class 8 Mathematics lesson about algebra for Kannada narration. The English "
-        "source must be factually precise and the full story must fit 60 seconds."
-    )
+HOUSE_STYLE = (
+    "Vintage editorial photograph with muted warm tones, soft diffused window light, gentle "
+    "film grain, shallow depth of field, the subject centered and fully visible against a plain "
+    "seamless warm-grey studio backdrop, generous empty space around it."
+)
+PRINTED_MATTER = re.compile(  # mirror of PRINTED_MATTER in src/lib/videos/planner.ts
+    r"\b(text|labels?|captions?|letters|lettering|numerals?|digits?|equations?|formulas?|"
+    r"signboards?|charts?|graphs?|diagrams?|infographics?|posters?|"
+    r"(?:black|white|chalk|bulletin|notice)boards?|screens?|monitors?|pages?|books?|notebooks?|"
+    r"newspapers?|documents?|storyboards?|maps?|scrolls?|manuscripts?|parchments?|written|"
+    r"writing|inscriptions?|inscribed)\b",
+    re.IGNORECASE,
+)
+OVERLAY_SCHEMA = {
+    "type": "object",
+    "required": ["kind"],
+    "properties": {
+        "kind": {"type": "string", "enum": ["none", "arrow", "equation", "groups", "bars", "timeline"]},
+        "years": {"type": "array", "items": {"type": "integer"}, "maxItems": 6},
+        "current": {"type": "integer"},
+        "direction": {"type": "string", "enum": [
+            "up", "down", "left", "right", "up-right", "down-right", "down-left", "up-left",
+        ]},
+        "steps": {"type": "array", "items": {"type": "string", "maxLength": 32}, "maxItems": 4},
+        "groups": {"type": "array", "maxItems": 5, "items": {
+            "type": "object", "required": ["count"],
+            "properties": {"count": {"type": "integer"}, "token": {"type": "string"}},
+        }},
+        "showTotal": {"type": "boolean"},
+        "values": {"type": "array", "items": {"type": "number"}, "maxItems": 6},
+        "unit": {"type": "string", "maxLength": 6},
+    },
+}
+def _math_function(expression: str):
+    source = expression.replace(" ", "").replace("^", "**")
+    if not re.fullmatch(r"[0-9a-z+\-*/().]+", source.replace("**", "*")):
+        raise ValueError("unsupported math")
+    source = re.sub(r"(?<=[0-9a-z)])(?=[a-z(])", "*", source)
+    code = compile(source, "<overlay>", "eval")
+    names = set(code.co_names)
+    if any(len(name) != 1 for name in names):
+        raise ValueError("variables must be single letters")
+    return (lambda values: eval(code, {"__builtins__": {}}, values)), names  # noqa: S307
+
+
+def audit_overlay(overlay: Any, fact: str) -> tuple[dict[str, Any], str | None]:
+    """Mirror of src/lib/videos/overlays.ts auditOverlay for acceptance seeding."""
+    if not isinstance(overlay, dict) or overlay.get("kind") in (None, "none"):
+        return {"kind": "none"}, None
+    kind = overlay["kind"]
+    if kind == "arrow":
+        return {"kind": "arrow", "direction": overlay.get("direction", "right")}, None
+    fact_numbers = {str(float(n)) for n in re.findall(r"\d+(?:\.\d+)?", fact)}
+    if kind == "equation":
+        steps = [str(step).strip().lower() for step in overlay.get("steps") or []]
+        shown = " ".join(steps)
+    elif kind == "groups":
+        groups = overlay.get("groups") or []
+        shown = " ".join(str(g.get("count")) for g in groups)
+        if overlay.get("showTotal"):
+            shown += f" {sum(int(g.get('count') or 0) for g in groups)}"
+    elif kind == "bars":
+        shown = " ".join(str(v) for v in overlay.get("values") or [])
+    else:
+        return {"kind": "none"}, f"unsupported kind {kind}"
+    missing = {str(float(n)) for n in re.findall(r"\d+(?:\.\d+)?", shown)} - fact_numbers
+    if missing:
+        return {"kind": "none"}, f"numbers {sorted(missing)} are not in the fact"
+    if kind == "equation":
+        try:
+            roots = []
+            for step in steps:
+                sides = step.split("=")
+                if len(sides) != 2:
+                    raise ValueError("each step must be one equation")
+                left, left_names = _math_function(sides[0])
+                right, right_names = _math_function(sides[1])
+                names = left_names | right_names
+                if len(names) != 1:
+                    raise ValueError("one variable per equation")
+                (name,) = names
+                f = lambda v: left({name: v}) - right({name: v})  # noqa: E731
+                slope = f(1) - f(0)
+                if abs(slope) < 1e-9 or any(abs(f(p) - (f(0) + slope * p)) > 1e-6 for p in (-2, 3.5)):
+                    raise ValueError("equations must be linear")
+                roots.append(-f(0) / slope)
+            if any(abs(root - roots[0]) > 1e-6 for root in roots):
+                raise ValueError("steps do not share one solution")
+        except (ValueError, SyntaxError, ZeroDivisionError, TypeError) as error:
+            return {"kind": "none"}, f"equation dropped: {error}"
+        return {"kind": "equation", "steps": steps}, None
+    return dict(overlay), None
+
+
+def load_prompts() -> dict[str, str]:
+    here = Path(__file__).resolve().parent
+    candidates = [
+        Path(os.environ.get("LESSON_PROMPTS_PATH", "")),
+        here / "lesson-prompts.json",
+        here.parent.parent / "src/lib/videos/lesson-prompts.json",
+    ]
+    for candidate in candidates:
+        if candidate.name and candidate.is_file():
+            return json.loads(candidate.read_text(encoding="utf-8"))
+    raise RuntimeError("lesson-prompts.json was not found next to the seeder or in src/lib/videos")
+
+
+def fill(template: str, values: dict[str, Any]) -> str:
+    return re.sub(r"\{\{(\w+)\}\}", lambda match: str(values.get(match.group(1), "")), template)
+
+
+def structured(stage: str, system: str, user: str, schema: dict[str, Any],
+               check: Any, attempts: int = 3) -> dict[str, Any]:
+    """Call the local planner with validation feedback, like generateLocalStructured."""
     correction = ""
     errors: list[str] = []
-    for _attempt in range(3):
-        payload["userPrompt"] = base_request + correction
-        result = local_post(PLANNER_URL, "/structured", payload)
-        plan = result["output"]
-        scenes = plan.get("scenes") or []
-        errors = []
-        if len(scenes) != 8 or any(
-            item.get("index") != index for index, item in enumerate(scenes, 1)
-        ):
-            errors.append("Return exactly eight sequential scenes numbered 1 through 8.")
-        else:
-            for item in scenes:
-                words = len(str(item["narration"]).split())
-                fact = str(item["fact"]).strip()
-                fact_words = len(fact.split())
-                if words < 8 and 8 <= fact_words <= 16:
-                    # The fact has already passed the curriculum audit. Reusing it
-                    # is safer than asking the planner to invent filler solely to
-                    # satisfy a narration-length test.
-                    item["narration"] = fact
-                    words = fact_words
-                if not 8 <= words <= 16:
-                    errors.append(
-                        f"Scene {item['index']} narration has {words} words; rewrite it to 8-16."
-                    )
-                motion = str(item["motionDescription"])
-                if not all(marker in motion for marker in ("Start:", "Then:", "End:")):
-                    errors.append(
-                        f"Scene {item['index']} motion must contain Start:, Then:, and End:."
-                    )
+    for _attempt in range(attempts):
+        result = local_post(PLANNER_URL, "/structured", {
+            "stage": stage, "maxNewTokens": 4000, "jsonSchema": schema,
+            "systemPrompt": system, "userPrompt": user + correction,
+        })
+        output = result["output"]
+        errors = check(output)
         if not errors:
-            return plan
+            return output
         correction = (
-            "\n\nThe previous complete JSON failed these checks:\n- "
-            + "\n- ".join(errors)
-            + "\nCorrect every issue while preserving factual accuracy, then return the complete "
-            "lesson JSON again. Previous JSON:\n"
-            + json.dumps(plan, ensure_ascii=False)
+            "\n\nYour previous JSON failed validation. Correct every listed problem and return "
+            "the complete JSON again.\nValidation problems:\n- " + "\n- ".join(errors[:12])
+            + ("\nRewrite the visual plan from scratch using physical props only."
+               if stage == "video-lesson-director"
+               else "\nPrevious JSON:\n" + json.dumps(output, ensure_ascii=False))
         )
-    raise RuntimeError("Planner validation failed after three attempts: " + "; ".join(errors))
+    raise RuntimeError(f"{stage} failed validation: " + "; ".join(errors))
 
 
-def translate_plan(plan: dict[str, Any]) -> dict[str, Any]:
-    texts = [plan["title"], *[scene["narration"] for scene in plan["scenes"]]]
-    translated = local_post(
-        TRANSLATION_URL, "/translate", {"texts": texts, "languageCode": "kn-IN"}
-    )["translations"]
-    if len(translated) != 9:
-        raise RuntimeError("Translation response did not preserve the scene count")
+def clean_caption(caption: Any) -> str:
+    """Mirror of cleanCaption in planner.ts: drop math tokens, keep five words."""
+    words = [
+        word.strip(",.;:!?\"'()")
+        for word in str(caption or "").split()
+        if not re.search(r"[0-9=+*/^<>]", word)
+    ]
+    return " ".join(word for word in words if word)[:40].strip() if words else ""
+
+
+def sequential(scenes: list[dict[str, Any]], count: int) -> list[str]:
+    if len(scenes) != count or any(s.get("index") != i for i, s in enumerate(scenes, 1)):
+        return [f"Return exactly {count} scenes numbered 1 to {count}."]
+    return []
+
+
+def plan_lesson(args: argparse.Namespace) -> dict[str, Any]:
+    prompts = load_prompts()
+    count = 8
+    values = {
+        "duration": 60, "classLevel": args.class_level, "subject": args.subject,
+        "topic": args.topic, "sceneCount": count, "languageLabel": args.language_name,
+    }
+    writer_schema = {
+        "type": "object",
+        "required": ["title", "learningObjective", "scenes"],
+        "properties": {
+            "title": {"type": "string"},
+            "learningObjective": {"type": "string"},
+            "scenes": {"type": "array", "minItems": count, "maxItems": count, "items": {
+                "type": "object",
+                "required": ["index", "fact", "narration", "caption", "overlay"],
+                "properties": {
+                    "index": {"type": "integer"}, "fact": {"type": "string"},
+                    "narration": {"type": "string"}, "caption": {"type": "string"},
+                    "overlay": OVERLAY_SCHEMA,
+                },
+            }},
+        },
+    }
+
+    def check_writer(output: dict[str, Any]) -> list[str]:
+        scenes = output.get("scenes") or []
+        errors = sequential(scenes, count)
+        for scene in scenes:
+            if re.search(r"[0-9=+*/^<>]", str(scene.get("narration", ""))):
+                errors.append(
+                    f"Scene {scene.get('index')} narration is spoken aloud: write numbers and "
+                    "operations as words, no digits or symbols."
+                )
+            words = len(str(scene.get("narration", "")).split())
+            if not 7 <= words <= 18:
+                errors.append(f"Scene {scene.get('index')} narration has {words} words; use 10-14.")
+            scene["caption"] = " ".join(clean_caption(scene.get("caption")).split()[:5])
+            if len(scene["caption"]) < 3:
+                errors.append(f"Scene {scene.get('index')} caption must be a 1-5 word headline without digits.")
+        return errors
+
+    written = structured(
+        "video-lesson-writer", fill(prompts["writerSystem"], values),
+        fill(prompts["writerUser"], values), writer_schema, check_writer,
+    )
+    scenes = written["scenes"]
+
+    problems = []
+    for scene in scenes:
+        _overlay, issue = audit_overlay(scene.get("overlay"), str(scene["fact"]))
+        if issue:
+            problems.append({"index": scene["index"], "fact": scene["fact"],
+                             "overlay": scene.get("overlay"), "problem": issue})
+    if problems:
+        print(f"repairing overlays: {json.dumps(problems, ensure_ascii=False)}", file=sys.stderr)
+        repair_schema = {"type": "object", "required": ["scenes"], "properties": {"scenes": {
+            "type": "array", "items": {"type": "object", "required": ["index", "fact", "overlay"],
+                                       "properties": {"index": {"type": "integer"},
+                                                      "fact": {"type": "string"},
+                                                      "overlay": OVERLAY_SCHEMA}}}}}
+        try:
+            repaired = structured(
+                "video-lesson-math-repair", prompts["repairSystem"],
+                fill(prompts["repairUser"], {
+                    "topic": args.topic,
+                    "lesson": json.dumps([{"index": s["index"], "fact": s["fact"]} for s in scenes]),
+                    "problems": json.dumps(problems, ensure_ascii=False),
+                }),
+                repair_schema, lambda _output: [], attempts=1,
+            )["scenes"]
+        except RuntimeError as error:
+            print(f"overlay repair failed: {error}", file=sys.stderr)
+            repaired = []
+        for fix in repaired:
+            for scene in scenes:
+                if scene["index"] == fix.get("index"):
+                    scene["fact"], scene["overlay"] = fix["fact"], fix["overlay"]
+    for scene in scenes:
+        scene["overlay"], issue = audit_overlay(scene.get("overlay"), str(scene["fact"]))
+        if issue:
+            print(f"scene {scene['index']} overlay dropped: {issue}", file=sys.stderr)
+
+    director_schema = {
+        "type": "object",
+        "required": ["visualBible", "scenes"],
+        "properties": {
+            "visualBible": {"type": "string"},
+            "scenes": {"type": "array", "minItems": count, "maxItems": count, "items": {
+                "type": "object",
+                "required": ["index", "visualDescription", "motionDescription"],
+                "properties": {"index": {"type": "integer"},
+                               "visualDescription": {"type": "string"},
+                               "motionDescription": {"type": "string"}},
+            }},
+        },
+    }
+
+    def check_director(output: dict[str, Any]) -> list[str]:
+        directed = output.get("scenes") or []
+        errors = sequential(directed, count)
+        seen_visuals: set[str] = set()
+        if len(str(output.get("visualBible") or "")) < 40:
+            errors.append("visualBible must list the recurring props (40-500 characters).")
+        for scene in directed:
+            visual = str(scene.get("visualDescription", ""))
+            match = PRINTED_MATTER.search(visual)
+            if match:
+                errors.append(
+                    f"Scene {scene.get('index')} visualDescription mentions '{match.group(0)}'; "
+                    "describe only physical objects."
+                )
+            visual_key = re.sub(r"[^a-z0-9]+", " ", visual.lower()).strip()
+            if visual_key in seen_visuals:
+                errors.append(
+                    f"Scene {scene.get('index')} duplicates another physical starting arrangement."
+                )
+            seen_visuals.add(visual_key)
+            motion = str(scene.get("motionDescription", ""))
+            if not all(marker in motion for marker in ("Start:", "Then:", "End:")):
+                errors.append(f"Scene {scene.get('index')} motion must contain Start:, Then:, End:.")
+        return errors
+
+    director_system = prompts["directorSystem"]
+    if re.search(r"computer science|python|programming|coding|algorithm|(?:for|while) loops?",
+                 f"{args.subject} {args.topic}", re.IGNORECASE):
+        director_system += (
+            "\n\nFor programming lessons, NEVER depict a computer, monitor, terminal, "
+            "code, or anything printed. Use one recurring tangible analogy: a small wooden "
+            "conveyor track with colored wooden tokens, one brass action lever, and a movable "
+            "stop gate. Tokens passing the lever illustrate repeated execution; the stop gate "
+            "illustrates termination. Give every scene a visibly different starting state: "
+            "vary which tokens are at the entrance, under the lever, beyond the lever or "
+            "against the gate; whether the lever is raised or lowered; and whether the gate "
+            "is open or closed. The arrangement and physical action must mirror that scene's "
+            "audited fact. Do not repeat any visualDescription. Exact Python syntax belongs "
+            "in narration or verified software-drawn overlays, never in the photograph."
+        )
+    directed = structured(
+        "video-lesson-director", director_system,
+        fill(prompts["directorUser"], {**values, "scenes": json.dumps(
+            [{"index": s["index"], "fact": s["fact"], "caption": s["caption"]} for s in scenes],
+            ensure_ascii=False,
+        )}),
+        director_schema, check_director,
+    )
+    for scene, direction in zip(scenes, directed["scenes"]):
+        scene["visualDescription"] = direction["visualDescription"]
+        scene["motionDescription"] = direction["motionDescription"]
+    return {
+        "title": args.topic,
+        "learningObjective": written["learningObjective"],
+        "visualBible": directed["visualBible"],
+        "scenes": scenes,
+    }
+
+
+def translate_plan(plan: dict[str, Any], language_code: str) -> dict[str, Any]:
     plan = json.loads(json.dumps(plan))
+    if language_code == "en-IN":
+        return plan
+    scenes = plan["scenes"]
+    texts = [
+        plan["title"],
+        *[scene["narration"] for scene in scenes],
+        *[scene["caption"] for scene in scenes],
+    ]
+    translated = local_post(
+        TRANSLATION_URL, "/translate", {"texts": texts, "languageCode": language_code}
+    )["translations"]
+    if len(translated) != len(texts):
+        raise RuntimeError("Translation response did not preserve the scene count")
     plan["title"] = translated[0]
-    for index, scene in enumerate(plan["scenes"]):
+    for index, scene in enumerate(scenes):
         scene["narration"] = translated[index + 1]
+        scene["caption"] = translated[len(scenes) + index + 1].strip().rstrip("।.").strip()
     return plan
 
 
-def synthesize(plan: dict[str, Any]) -> tuple[bytes, float]:
+def synthesize(plan: dict[str, Any], language_code: str) -> tuple[bytes, float]:
     transcript = " ".join(scene["narration"].strip() for scene in plan["scenes"])
     audio = local_post(
         TTS_URL,
         "/synthesize",
-        {"transcript": transcript, "languageCode": "kn-IN", "pace": "natural"},
+        {"transcript": transcript, "languageCode": language_code, "pace": "natural"},
         raw=True,
     )
     with wave.open(BytesIO(audio), "rb") as wav:
@@ -196,18 +432,20 @@ def synthesize(plan: dict[str, Any]) -> tuple[bytes, float]:
     return audio, duration
 
 
-def seed(plan: dict[str, Any], audio: bytes, audio_duration: float) -> str:
+def seed(
+    plan: dict[str, Any], audio: bytes, audio_duration: float, args: argparse.Namespace,
+) -> str:
     project_id = str(uuid.uuid4())
-    owner = owner_id()
+    owner = owner_id(args.owner_project_id)
     narration = " ".join(scene["narration"].strip() for scene in plan["scenes"])
     project = {
         "id": project_id,
         "owner_id": owner,
-        "class_level": 8,
-        "subject": "Mathematics",
-        "topic": "Algebra",
-        "language_code": "kn-IN",
-        "language_name": "Kannada",
+        "class_level": args.class_level,
+        "subject": args.subject,
+        "topic": args.topic,
+        "language_code": args.language,
+        "language_name": args.language_name,
         "target_duration_seconds": 60,
         "title": plan["title"],
         "learning_objective": plan["learningObjective"],
@@ -244,26 +482,14 @@ def seed(plan: dict[str, Any], audio: bytes, audio_duration: float) -> str:
     job_rows: list[dict[str, Any]] = []
     for scene in plan["scenes"]:
         scene_id = str(uuid.uuid4())
-        visual = (
-            f"Storyboard visual bible: {plan['visualBible']}. Scene composition: "
-            f"{scene['visualDescription']}. Text-free conceptual educational illustration; "
-            "show only the topic objects and spatial relationships. No exact object counting."
-        )
-        image_prompt = (
-            f"Opening keyframe for a genuinely animated Class 8 Mathematics sequence about "
-            f"algebra. Exact concept: {scene['fact']}. {visual} Premium editorial motion-graphics "
-            "composition with layered tactile objects, clear foreground and background separation, "
-            "accurate relationships, and every object required for the coming action already "
-            "visible. One coherent widescreen 16:9 frame. Absolutely no classroom, people, "
-            "blackboard, code, equations, letters, numbers, captions, labels, logo, watermark, "
-            "UI, or visible text."
-        )
+        visual = str(scene["visualDescription"]).strip()
+        # Keep in sync with create_lesson_video_project in
+        # supabase/migrations/20260925150000_editorial_lesson_compositor.sql.
+        image_prompt = f"{visual} {HOUSE_STYLE}"
         video_prompt = (
-            "Create a true animated explanation of this algebra concept, not a slideshow or "
-            "moving photograph. Preserve object identity and the source composition, then execute "
-            f"every ordered action beat: {scene['motionDescription']}. The subject action must "
-            "visibly demonstrate the fact; camera motion is secondary. Use smooth purposeful "
-            "motion, stable geometry, and the specified conceptually correct final state."
+            f"{visual} Animate the subject physically: {scene['motionDescription']} Smooth, "
+            "purposeful, physically plausible motion with stable object identity and a clear "
+            "final state; the camera stays nearly still."
         )
         scene_rows.append(
             {
@@ -273,10 +499,14 @@ def seed(plan: dict[str, Any], audio: bytes, audio_duration: float) -> str:
                 "duration_seconds": 7.5,
                 "fact": scene["fact"],
                 "narration": scene["narration"],
+                "caption": scene["caption"],
+                "overlay": scene["overlay"],
                 "image_prompt": image_prompt,
                 "video_prompt": video_prompt,
             }
         )
+        if scene["index"] > args.scenes:
+            continue
         job_rows.append(
             {
                 "owner_id": owner,
@@ -285,11 +515,8 @@ def seed(plan: dict[str, Any], audio: bytes, audio_duration: float) -> str:
                 "kind": "image",
                 "profile": "image-fast",
                 "prompt": image_prompt,
-                "negative_prompt": (
-                    "text, writing, letters, numbers, equations, captions, labels, classroom, "
-                    "teacher, blackboard, projector, watermark, logo, duplicate subjects, low "
-                    "quality, static slide, presentation card"
-                ),
+                "negative_prompt": "text, writing, letters, numbers, watermark, logo",
+                "max_attempts": 4,
                 "parameters": {
                     "width": 1024,
                     "height": 576,
@@ -305,26 +532,45 @@ def seed(plan: dict[str, Any], audio: bytes, audio_duration: float) -> str:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--auth-check", action="store_true")
+    parser.add_argument("--owner-project-id", help="Use the owner of this existing lesson project")
+    parser.add_argument("--class-level", type=int, default=8)
+    parser.add_argument("--subject", default="Mathematics")
+    parser.add_argument("--topic", default="Algebra: solving simple linear equations")
+    parser.add_argument("--language", default="kn-IN")
+    parser.add_argument("--language-name", default="Kannada")
+    parser.add_argument(
+        "--scenes", type=int, default=8,
+        help="Queue media only for the first N scenes (cheap visual acceptance)",
+    )
+    parser.add_argument("--plan-only", action="store_true", help="Print the audited plan and exit")
+    args = parser.parse_args()
     if not SUPABASE_URL or not SERVICE_KEY:
         raise SystemExit("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
-    if "--auth-check" in sys.argv[1:]:
-        print(json.dumps({"authenticated": bool(owner_id())}))
+    if args.auth_check:
+        print(json.dumps({"authenticated": bool(owner_id(args.owner_project_id))}))
         return 0
     started = time.monotonic()
-    plan = plan_lesson()
+    plan = plan_lesson(args)
     planned = time.monotonic()
-    plan = translate_plan(plan)
+    if args.plan_only:
+        print(json.dumps(plan, ensure_ascii=False, indent=2))
+        return 0
+    plan = translate_plan(plan, args.language)
     translated = time.monotonic()
-    audio, duration = synthesize(plan)
+    audio, duration = synthesize(plan, args.language)
     voiced = time.monotonic()
-    project_id = seed(plan, audio, duration)
+    project_id = seed(plan, audio, duration, args)
     print(
         json.dumps(
             {
                 "projectId": project_id,
                 "title": plan["title"],
+                "captions": [scene["caption"] for scene in plan["scenes"]],
+                "overlays": [scene["overlay"]["kind"] for scene in plan["scenes"]],
                 "narrationDurationSeconds": round(duration, 3),
-                "sceneCount": 8,
+                "queuedScenes": min(8, args.scenes),
                 "timings": {
                     "planning": round(planned - started, 2),
                     "translation": round(translated - planned, 2),

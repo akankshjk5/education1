@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { auth } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 import { publicEnv } from '@/lib/env';
@@ -22,9 +22,23 @@ export async function createClient() {
   const { getToken } = await auth();
 
   return createSupabaseClient<Database>(publicEnv.supabaseUrl, publicEnv.supabaseAnonKey, {
-    // supabase-js calls this before every request, so an expiring token is
-    // refreshed by Clerk rather than going stale mid-session.
+    // Suitable for short requests. Without options, Clerk returns the JWT
+    // from the original request, which can expire during long setup work.
     accessToken: async () => (await getToken()) ?? null,
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+/**
+ * Mint a fresh Clerk JWT for each DB operation after long-running work.
+ * Pass only a sessionId obtained from server-side auth(), never request input.
+ */
+export function createClientWithFreshSessionToken(sessionId: string) {
+  return createSupabaseClient<Database>(publicEnv.supabaseUrl, publicEnv.supabaseAnonKey, {
+    accessToken: async () => {
+      const clerk = await clerkClient();
+      return (await clerk.sessions.getToken(sessionId)).jwt;
+    },
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }

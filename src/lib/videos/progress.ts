@@ -67,6 +67,16 @@ export function lessonProgressSnapshot(
   jobs: LessonProgressJob[],
   now = Date.now(),
 ): LessonProgressSnapshot {
+  if (project.status === 'preparing') {
+    return {
+      progress: 0,
+      etaSeconds: null,
+      sceneProgress: {},
+      completedClips: 0,
+      totalClips: 0,
+      activeSceneIndex: null,
+    };
+  }
   if (project.status === 'succeeded') {
     return {
       progress: 100,
@@ -86,10 +96,15 @@ export function lessonProgressSnapshot(
   let activeSceneIndex: number | null = null;
 
   for (const scene of scenes) {
-    const imageJob = jobs.find((job) => job.scene_id === scene.id && job.kind === 'image');
-    const videoJob = jobs.find((job) => job.scene_id === scene.id && job.kind === 'video');
-    const imageFraction = jobFraction(imageJob, imageSeconds, now);
-    const videoFraction = jobFraction(videoJob, videoSeconds, now);
+    // A rejected storyboard may leave cancelled attempts behind and enqueue a
+    // replacement job. The API returns jobs oldest-first, so use the latest
+    // active attempt and trust saved media URLs over historical job rows.
+    const imageJob = jobs.findLast((job) => job.scene_id === scene.id
+      && job.kind === 'image' && job.status !== 'cancelled');
+    const videoJob = jobs.findLast((job) => job.scene_id === scene.id
+      && job.kind === 'video' && job.status !== 'cancelled');
+    const imageFraction = scene.image_url ? 1 : jobFraction(imageJob, imageSeconds, now);
+    const videoFraction = scene.video_url ? 1 : jobFraction(videoJob, videoSeconds, now);
     completedWork += imageSeconds * imageFraction + videoSeconds * videoFraction;
     const percent = Math.round(
       ((imageSeconds * imageFraction + videoSeconds * videoFraction)

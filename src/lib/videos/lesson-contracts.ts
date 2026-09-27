@@ -19,6 +19,7 @@ export const CreateLessonVideoSchema = z.object({
 });
 
 export const LessonVideoStatusSchema = z.enum([
+  'preparing',
   'generating_images',
   'generating_videos',
   'assembling',
@@ -36,6 +37,8 @@ export const LessonVideoSceneSchema = z.object({
   narration: z.string(),
   image_prompt: z.string(),
   video_prompt: z.string(),
+  caption: z.string().default(''),
+  overlay: z.record(z.string(), z.unknown()).default({ kind: 'none' }),
   status: z.enum([
     'queued_image',
     'generating_image',
@@ -87,4 +90,5 @@ export interface LessonVideoDetail {
   completedClips: number;
   totalClips: number;
   activeSceneIndex: number | null;
+  waitingForWorker: boolean;
 }

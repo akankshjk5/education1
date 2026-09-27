@@ -88,6 +88,16 @@ export function narrationUsesSelectedLanguage(
   return nativeLetters >= Math.max(12, Math.floor(letters.length * 0.55));
 }
 
+/** Short-text variant for 1-5 word captions (narration needs 12+ native letters). */
+export function captionUsesSelectedLanguage(text: string, code: VideoLanguageCode): boolean {
+  if (code === 'en-IN') return !INDIAN_SCRIPT_PATTERN.test(text) && /\p{L}/u.test(text);
+  const script = LANGUAGE_SCRIPT_PATTERNS[code];
+  if (!script) return false;
+  const letters = [...text].filter((character) => /\p{L}/u.test(character));
+  const native = letters.filter((character) => script.test(character)).length;
+  return native >= 2 && native >= letters.length * 0.6;
+}
+
 export function usesEnglishProductionScript(text: string): boolean {
   return !INDIAN_SCRIPT_PATTERN.test(text);
 }

@@ -26,7 +26,40 @@ def extract_json(raw: str) -> Any:
     start, end = candidate.find("{"), candidate.rfind("}")
     if start >= 0 and end > start:
         candidate = candidate[start : end + 1]
-    return json.loads(candidate)
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        return json.loads(escape_inner_quotes(candidate))
+
+
+def escape_inner_quotes(candidate: str) -> str:
+    """Escape double quotes the model left unescaped inside string values.
+
+    Inside a string, a quote only closes it when the next non-space character
+    is one of , } ] or : -- any other quote is part of the text.
+    """
+    output: list[str] = []
+    in_string = False
+    escaped = False
+    for position, character in enumerate(candidate):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                rest = candidate[position + 1 :].lstrip()
+                if rest[:1] in (",", "}", "]", ":", ""):
+                    in_string = False
+                else:
+                    output.append("\\")
+            elif character == "\n":
+                output.append("\\n")
+                continue
+        elif character == '"':
+            in_string = True
+        output.append(character)
+    return "".join(output)
 
 
 print(f"[local-planner] loading {MODEL_PATH}", flush=True)
@@ -45,7 +78,7 @@ def generate(payload: dict[str, Any]) -> dict[str, Any]:
     system_prompt = str(payload.get("systemPrompt", "")).strip()
     user_prompt = str(payload.get("userPrompt", "")).strip()
     schema = payload.get("jsonSchema")
-    max_new_tokens = max(512, min(3_500, int(payload.get("maxNewTokens", 3_200))))
+    max_new_tokens = max(512, min(5_000, int(payload.get("maxNewTokens", 3_200))))
     if not system_prompt or not user_prompt or not isinstance(schema, dict):
         raise ValueError("systemPrompt, userPrompt and jsonSchema are required")
 
@@ -85,7 +118,7 @@ def generate(payload: dict[str, Any]) -> dict[str, Any]:
         finally:
             MODEL.to("cpu")
             torch.cuda.empty_cache()
-    return {"output": extract_json(raw), "model": "Qwen/Qwen3-4B", "raw": raw}
+    return {"output": extract_json(raw), "model": os.path.basename(MODEL_PATH.rstrip("/")), "raw": raw}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -106,7 +139,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/health":
             self.send_json(404, {"error": "not found"})
             return
-        self.send_json(200, {"status": "ready", "model": "Qwen/Qwen3-4B", "local": True})
+        self.send_json(200, {"status": "ready", "model": os.path.basename(MODEL_PATH.rstrip("/")), "local": True})
 
     def do_POST(self) -> None:  # noqa: N802
         if self.path != "/structured":
