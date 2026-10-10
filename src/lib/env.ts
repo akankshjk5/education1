@@ -207,14 +207,64 @@ export const serverEnv = {
 
   /**
    * Per-skill model override for the cloud lesson skills, e.g.
-   * `CLOUD_LESSON_MODEL_CLOUD_LESSON_SCENE_DIRECTOR=vertex/gemini-2.5-pro`.
-   * Separate from `OPENROUTER_MODEL_<SKILL>`: these skills call Gemini on
-   * Vertex directly, never through OpenRouter.
+   * `CLOUD_LESSON_MODEL_CLOUD_LESSON_SCENE_DIRECTOR=gemini/gemini-3.8-flash`.
+   * Separate from `OPENROUTER_MODEL_<SKILL>`: these skills call Gemini
+   * directly, never through OpenRouter.
    */
   cloudLessonModelForSkill(slug: string): string | undefined {
     const key = `CLOUD_LESSON_MODEL_${slug.toUpperCase().replace(/-/g, '_')}`;
     const value = process.env[key];
     return value?.trim() ? value.trim() : undefined;
+  },
+  /**
+   * Which Gemini service the cloud engine calls. Same models either way:
+   *  - `aistudio` — a Gemini API key from aistudio.google.com (GEMINI_API_KEY,
+   *    starts `AIza`). Needs billing on the key's project for real traffic.
+   *  - `vertex` — a Vertex AI express-mode key (GOOGLE_VERTEX_API_KEY, starts
+   *    `AQ.`). Needs the Vertex AI API enabled on its project.
+   * CLOUD_LESSON_GEMINI_BACKEND picks one explicitly; otherwise AI Studio is
+   * used when GEMINI_API_KEY is set, and Vertex when only the Vertex key is.
+   */
+  get cloudLessonGeminiBackend(): 'aistudio' | 'vertex' {
+    const explicit = process.env.CLOUD_LESSON_GEMINI_BACKEND?.trim().toLowerCase();
+    if (explicit === 'aistudio' || explicit === 'vertex') return explicit;
+    if (process.env.GEMINI_API_KEY?.trim()) return 'aistudio';
+    return 'vertex';
+  },
+  /** The key for `cloudLessonGeminiBackend`. Throws by name when it is missing. */
+  get cloudLessonGeminiApiKey() {
+    return this.cloudLessonGeminiBackend === 'aistudio'
+      ? required('GEMINI_API_KEY', process.env.GEMINI_API_KEY)
+      : required('GOOGLE_VERTEX_API_KEY', process.env.GOOGLE_VERTEX_API_KEY);
+  },
+  /**
+   * Gemini speech model for the cloud lesson engine. Deliberately does NOT
+   * fall back to GEMINI_TTS_MODEL: that belongs to the other engine, and its
+   * Gemini 2.5 value is closed to new Gemini accounts. Use
+   * CLOUD_LESSON_TTS_MODEL to change this one.
+   */
+  get cloudLessonTtsModel() {
+    return process.env.CLOUD_LESSON_TTS_MODEL?.trim() || 'gemini-3.8-flash-tts';
+  },
+  /**
+   * Gemini image model for the cloud lesson keyframes. Nano Banana 2.1 costs
+   * the same per 1K image as 3.1 Flash-Lite Image ($0.0336) and is built to
+   * follow a reference image, which is how scenes 2-8 keep scene 1's look.
+   */
+  get cloudLessonImageModel() {
+    return process.env.CLOUD_LESSON_IMAGE_MODEL?.trim() || 'gemini-nano-banana-2.1';
+  },
+  /** Prebuilt Gemini voice for narration, e.g. Kore. */
+  get cloudLessonTtsVoice() {
+    return process.env.CLOUD_LESSON_TTS_VOICE?.trim() || process.env.GEMINI_TTS_VOICE?.trim() || 'Kore';
+  },
+  /**
+   * Gemini calls one process may have in flight at once, across all lessons.
+   * Keeps a burst of teachers from tripping Gemini's per-minute quota.
+   */
+  get cloudLessonGeminiConcurrency(): number {
+    const parsed = Number(process.env.CLOUD_LESSON_GEMINI_CONCURRENCY ?? '8');
+    return Number.isInteger(parsed) && parsed >= 1 && parsed <= 64 ? parsed : 8;
   },
 };
 

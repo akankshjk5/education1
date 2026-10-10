@@ -1,8 +1,7 @@
 ---
-model: vertex/gemini-2.5-flash
-temperature: 0.1
-thinkingBudget: 2048
-maxOutputTokens: 6144
+model: gemini/gemini-3.6-flash
+thinkingLevel: medium
+maxOutputTokens: 8192
 ---
 
 [ROLE / AGENT DESCRIPTION]

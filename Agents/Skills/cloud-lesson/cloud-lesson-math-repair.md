@@ -1,7 +1,6 @@
 ---
-model: vertex/gemini-2.5-flash-lite
-temperature: 0.1
-thinkingBudget: 1024
+model: gemini/gemini-3.5-flash-lite
+thinkingLevel: low
 maxOutputTokens: 4096
 ---
 

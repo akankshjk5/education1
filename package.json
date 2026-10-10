@@ -14,6 +14,8 @@
     "smoke:research": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/smoke-research.mts",
     "smoke:deck": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/smoke-deck.mts",
     "smoke:cloud-skills": "tsx --require ./scripts/allow-server-only.cjs scripts/smoke-cloud-lesson-skills.mts",
+    "test:cloud-gemini": "tsx --require ./scripts/allow-server-only.cjs scripts/test-cloud-lesson-gemini.mts",
+    "smoke:cloud-gemini": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/smoke-cloud-gemini.mts",
     "db:start": "supabase start",
     "db:stop": "supabase stop",
     "db:link": "supabase link",

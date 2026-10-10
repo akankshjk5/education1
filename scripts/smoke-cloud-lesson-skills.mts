@@ -4,7 +4,7 @@
  *   npm run smoke:cloud-skills
  *
  * Checks that every skill in Agents/Skills/cloud-lesson/ loads, names a
- * vertex/ model, renders with no placeholder left over, honours its env
+ * gemini/ model, renders with no placeholder left over, honours its env
  * override, refuses bad files — and that the deck pipeline's own skill loader
  * still sees exactly the deck specialists and none of these.
  */
@@ -38,13 +38,15 @@ const skills = await loadAllCloudLessonSkills();
 assert.equal(skills.length, CLOUD_LESSON_SKILLS.length);
 console.log(`cloud lesson skills: ${skills.length}`);
 for (const skill of skills) {
-  assert.match(skill.model, /^vertex\/gemini-/, `${skill.name} model`);
+  assert.match(skill.model, /^gemini\/gemini-/, `${skill.name} model`);
   const prompt = renderCloudLessonPrompt(skill, values);
   assert.ok(!/\{\{\w+\}\}/.test(prompt), `${skill.name} left a placeholder unfilled`);
   assert.ok(prompt.includes('[OUTPUT]'), `${skill.name} has no [OUTPUT] section`);
+  assert.ok(skill.thinkingLevel, `${skill.name} should set a Gemini 3.x thinkingLevel`);
+  assert.ok(!/^gemini-2\./.test(skill.modelId), `${skill.name} names a Gemini 2.x model, closed to new accounts`);
   console.log(
-    `  ${skill.name.padEnd(30)} ${skill.vertexModel.padEnd(22)} temp ${skill.temperature}  `
-    + `thinking ${String(skill.thinkingBudget).padStart(4)}  out ${skill.maxOutputTokens}  `
+    `  ${skill.name.padEnd(30)} ${skill.modelId.padEnd(22)} temp ${skill.temperature ?? 'default'}  `
+    + `thinking ${String(skill.thinkingLevel ?? skill.thinkingBudget).padEnd(7)}  out ${skill.maxOutputTokens}  `
     + `${prompt.length} chars  {{${skill.placeholders.join(', ')}}}`,
   );
 }
@@ -56,25 +58,34 @@ assert.throws(
   (error: unknown) => error instanceof CloudLessonSkillError && /classLevel/.test(error.message),
 );
 
-// 3. The env override wins, and must still be a vertex/ model.
+// 3. The env override wins, must still be a gemini/ model, and vertex/ is read as an alias.
 const translatorFile = await readFile(
   path.join(process.cwd(), 'Agents', 'Skills', 'cloud-lesson', 'cloud-lesson-translator.md'),
   'utf8',
 );
-process.env.CLOUD_LESSON_MODEL_CLOUD_LESSON_TRANSLATOR = 'vertex/gemini-2.5-pro';
-assert.equal(parseCloudLessonSkill('cloud-lesson-translator', translatorFile).vertexModel, 'gemini-2.5-pro');
-process.env.CLOUD_LESSON_MODEL_CLOUD_LESSON_TRANSLATOR = 'google/gemini-2.5-pro';
+process.env.CLOUD_LESSON_MODEL_CLOUD_LESSON_TRANSLATOR = 'gemini/gemini-3.1-pro-preview';
+assert.equal(parseCloudLessonSkill('cloud-lesson-translator', translatorFile).modelId, 'gemini-3.1-pro-preview');
+process.env.CLOUD_LESSON_MODEL_CLOUD_LESSON_TRANSLATOR = 'vertex/gemini-3.1-pro-preview';
+assert.equal(parseCloudLessonSkill('cloud-lesson-translator', translatorFile).modelId, 'gemini-3.1-pro-preview');
+process.env.CLOUD_LESSON_MODEL_CLOUD_LESSON_TRANSLATOR = 'google/gemini-3.1-pro-preview';
 assert.throws(() => parseCloudLessonSkill('cloud-lesson-translator', translatorFile), CloudLessonSkillError);
 delete process.env.CLOUD_LESSON_MODEL_CLOUD_LESSON_TRANSLATOR;
 
 // 4. Bad files are refused.
-const withKey = translatorFile.replace('temperature:', 'tools: yes\ntemperature:');
+const withKey = translatorFile.replace('maxOutputTokens:', 'tools: yes\nmaxOutputTokens:');
 assert.throws(() => parseCloudLessonSkill('cloud-lesson-translator', withKey), /unknown frontmatter key/);
 const withTools = `${translatorFile}\n[TOOLS]\n\`\`\`json\n[]\n\`\`\`\n`;
 assert.throws(() => parseCloudLessonSkill('cloud-lesson-translator', withTools), /\[TOOLS\]/);
 assert.throws(() => parseCloudLessonSkill('cloud-lesson-translator', 'no frontmatter'), /frontmatter/);
-const hot = translatorFile.replace('temperature: 0.2', 'temperature: 9');
+const hot = translatorFile.replace('maxOutputTokens:', 'temperature: 9\nmaxOutputTokens:');
 assert.throws(() => parseCloudLessonSkill('cloud-lesson-translator', hot), /temperature/);
+const both = translatorFile.replace('maxOutputTokens:', 'thinkingBudget: 512\nmaxOutputTokens:');
+assert.throws(() => parseCloudLessonSkill('cloud-lesson-translator', both), /both thinkingLevel and thinkingBudget/);
+const badLevel = translatorFile.replace('thinkingLevel: low', 'thinkingLevel: extreme');
+assert.throws(() => parseCloudLessonSkill('cloud-lesson-translator', badLevel), /thinkingLevel/);
+// A 2.5 skill still loads with a budget and no level.
+const legacy = translatorFile.replace('thinkingLevel: low', 'thinkingBudget: 1024');
+assert.equal(parseCloudLessonSkill('cloud-lesson-translator', legacy).thinkingBudget, 1024);
 
 // 5. The deck pipeline is untouched: its loader sees none of these files.
 const deckSkills = await listSkills();

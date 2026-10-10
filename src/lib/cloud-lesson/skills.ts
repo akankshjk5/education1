@@ -15,8 +15,10 @@ import { serverEnv } from '@/lib/env';
  *  - The deck pipeline's `listSkills()` reads only the top level of
  *    `Agents/Skills/`, so it never sees these files, and the deck smoke test's
  *    rule that every specialist declares `reset_to_manager` does not apply.
- *  - These skills run on Gemini via Vertex, not OpenRouter, so their model
- *    slugs are `vertex/<model>` and only that prefix is accepted here.
+ *  - These skills run on Gemini directly (AI Studio or Vertex, see
+ *    `cloudLessonGeminiBackend` in env.ts), not through OpenRouter, so their
+ *    model slugs are `gemini/<model>` and only that prefix is accepted here
+ *    (`vertex/<model>` is still read, as an alias).
  *  - They return structured JSON and call no tools, so a `[TOOLS]` block is
  *    refused rather than silently ignored.
  *
@@ -35,24 +37,41 @@ export const CLOUD_LESSON_SKILLS = [
   'cloud-lesson-scene-director',
   'cloud-lesson-translator',
   'cloud-lesson-narration-editor',
+  'cloud-lesson-keyframe-checker',
 ] as const;
 export type CloudLessonSkillName = (typeof CLOUD_LESSON_SKILLS)[number];
 
-/** `vertex/<model>`, e.g. `vertex/gemini-2.5-flash`. */
-const VERTEX_MODEL = /^vertex\/([a-z0-9][a-z0-9.-]*)$/;
+/** `gemini/<model>`, e.g. `gemini/gemini-3.6-flash`. `vertex/` is accepted as an alias. */
+const GEMINI_MODEL = /^(?:gemini|vertex)\/([a-z0-9][a-z0-9.-]*)$/;
 
 /** Frontmatter keys a cloud skill may set. Anything else is refused. */
-const ALLOWED_KEYS = new Set(['model', 'temperature', 'thinkingBudget', 'maxOutputTokens']);
+const ALLOWED_KEYS = new Set(['model', 'temperature', 'thinkingLevel', 'thinkingBudget', 'maxOutputTokens']);
+
+/**
+ * Gemini 3.x thinks in named levels; Gemini 2.5 took a token budget. A skill
+ * sets one or the other (never both), so an env override back to a 2.5 model
+ * still has a way to say how much to think.
+ */
+export const THINKING_LEVELS = ['minimal', 'low', 'medium', 'high'] as const;
+export type ThinkingLevelName = (typeof THINKING_LEVELS)[number];
 
 export interface CloudLessonSkill {
   name: CloudLessonSkillName;
-  /** The full `vertex/...` slug, after any env override. */
+  /** The full `gemini/...` slug, after any env override. */
   model: string;
-  /** The Gemini model id to send to Vertex, e.g. `gemini-2.5-flash`. */
-  vertexModel: string;
-  temperature: number;
-  /** Gemini thinking budget in tokens; 0 turns thinking off. */
-  thinkingBudget: number;
+  /** The Gemini model id to send, e.g. `gemini-3.6-flash` — the same on AI Studio and Vertex. */
+  modelId: string;
+  /**
+   * Null = the model's own default, which is what the cloud skills use: Google
+   * strongly recommends Gemini 3.x stays at 1.0, and warns that lower values
+   * can cause looping or worse reasoning. Zod validation, not a low
+   * temperature, is what keeps the answers in shape.
+   */
+  temperature: number | null;
+  /** Gemini 3.x thinking level, or null when the skill uses a budget instead. */
+  thinkingLevel: ThinkingLevelName | null;
+  /** Gemini 2.5 thinking budget in tokens (0 = off), or null when a level is set. */
+  thinkingBudget: number | null;
   maxOutputTokens: number;
   /** The prompt with `{{placeholders}}` still in it. */
   template: string;
@@ -109,10 +128,10 @@ export function parseCloudLessonSkill(name: CloudLessonSkillName, raw: string): 
 
   const model = serverEnv.cloudLessonModelForSkill(name) ?? meta.model;
   if (!model) throw new CloudLessonSkillError(`Skill "${name}" declares no model`);
-  const vertex = model.match(VERTEX_MODEL);
-  if (!vertex) {
+  const matched = model.match(GEMINI_MODEL);
+  if (!matched) {
     throw new CloudLessonSkillError(
-      `Skill "${name}" uses model "${model}"; cloud lesson skills need a vertex/<model> slug`,
+      `Skill "${name}" uses model "${model}"; cloud lesson skills need a gemini/<model> slug`,
     );
   }
 
@@ -124,12 +143,27 @@ export function parseCloudLessonSkill(name: CloudLessonSkillName, raw: string): 
     throw new CloudLessonSkillError(`Skill "${name}" has a malformed placeholder: ${malformed[0].slice(0, 40)}`);
   }
 
+  if (meta.thinkingLevel !== undefined && meta.thinkingBudget !== undefined) {
+    throw new CloudLessonSkillError(`Skill "${name}" sets both thinkingLevel and thinkingBudget; pick one`);
+  }
+  let thinkingLevel: ThinkingLevelName | null = null;
+  if (meta.thinkingLevel !== undefined) {
+    const level = meta.thinkingLevel.toLowerCase();
+    if (!(THINKING_LEVELS as readonly string[]).includes(level)) {
+      throw new CloudLessonSkillError(
+        `Skill "${name}" sets thinkingLevel to ${meta.thinkingLevel}; expected ${THINKING_LEVELS.join(', ')}`,
+      );
+    }
+    thinkingLevel = level as ThinkingLevelName;
+  }
+
   return {
     name,
     model,
-    vertexModel: vertex[1],
-    temperature: numberSetting(meta, 'temperature', name, 0.3, 0, 2),
-    thinkingBudget: numberSetting(meta, 'thinkingBudget', name, 1024, 0, 24576),
+    modelId: matched[1],
+    temperature: meta.temperature === undefined ? null : numberSetting(meta, 'temperature', name, 1, 0, 2),
+    thinkingLevel,
+    thinkingBudget: meta.thinkingBudget === undefined ? null : numberSetting(meta, 'thinkingBudget', name, 1024, 0, 24576),
     maxOutputTokens: numberSetting(meta, 'maxOutputTokens', name, 4096, 256, 65536),
     template,
     placeholders,
@@ -160,7 +194,7 @@ export function loadCloudLessonSkill(name: CloudLessonSkillName): Promise<CloudL
   return loading;
 }
 
-/** All six, for a startup check: a worker should refuse to start on a bad skill. */
+/** Every skill, for a startup check: a worker should refuse to start on a bad skill. */
 export function loadAllCloudLessonSkills(): Promise<CloudLessonSkill[]> {
   return Promise.all(CLOUD_LESSON_SKILLS.map(loadCloudLessonSkill));
 }
