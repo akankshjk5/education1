@@ -200,6 +200,22 @@ export const serverEnv = {
   get clerkSecretKey() {
     return required('CLERK_SECRET_KEY', process.env.CLERK_SECRET_KEY);
   },
+
+  // ── Cloud lesson engine (Gemini + Higgsfield) ─────────────────────────────
+  // Read only by src/lib/cloud-lesson/*. Nothing in the deck pipeline or the
+  // RunPod lesson engine touches these.
+
+  /**
+   * Per-skill model override for the cloud lesson skills, e.g.
+   * `CLOUD_LESSON_MODEL_CLOUD_LESSON_SCENE_DIRECTOR=vertex/gemini-2.5-pro`.
+   * Separate from `OPENROUTER_MODEL_<SKILL>`: these skills call Gemini on
+   * Vertex directly, never through OpenRouter.
+   */
+  cloudLessonModelForSkill(slug: string): string | undefined {
+    const key = `CLOUD_LESSON_MODEL_${slug.toUpperCase().replace(/-/g, '_')}`;
+    const value = process.env[key];
+    return value?.trim() ? value.trim() : undefined;
+  },
 };
 
 /**
