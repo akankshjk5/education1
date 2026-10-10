@@ -217,6 +217,31 @@ await test('structured: a transient 503 is retried; a 403 is not', async () => {
   assert.equal(denied.requests.length, 1);
 });
 
+await test('structured: a generic schema rejection falls back without losing validation', async () => {
+  const { transport, requests } = fake([
+    httpError(400, 'Request contains an invalid argument.'),
+    textAnswer({}),
+    textAnswer(valid),
+  ]);
+  const result = await generateStructured({ ...base, transport });
+  assert.deepEqual(result.data, valid);
+  assert.equal(requests.length, 3);
+  assert.ok(requests[0].config.responseJsonSchema);
+  assert.ok(!('responseJsonSchema' in requests[1].config));
+  assert.ok(!('responseJsonSchema' in requests[2].config));
+  assert.deepEqual(requests[1].config.thinkingConfig, requests[0].config.thinkingConfig);
+});
+
+await test('structured: repeated generic rejection stops after one schema fallback', async () => {
+  const { transport, requests } = fake([
+    httpError(400, 'Request contains an invalid argument.'),
+    httpError(400, 'Request contains an invalid argument.'),
+  ]);
+  await assert.rejects(generateStructured({ ...base, transport }),
+    (error: unknown) => error instanceof GeminiCallError && error.status === 400);
+  assert.equal(requests.length, 2);
+});
+
 await test('structured: a schema Vertex refuses falls back to plain JSON mode once', async () => {
   const { transport, requests } = fake([httpError(400, 'Invalid JSON schema: unsupported keyword'), textAnswer(valid)]);
   const result = await generateStructured({ ...base, transport });

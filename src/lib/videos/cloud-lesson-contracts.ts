@@ -138,6 +138,7 @@ export const CloudLessonProjectSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   completed_at: z.string().nullable(),
+  reused_from_project_id: z.string().uuid().nullable().optional(),
 });
 export type CloudLessonProject = z.infer<typeof CloudLessonProjectSchema>;
 

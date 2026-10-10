@@ -222,6 +222,7 @@ export type Database = {
           narration_text: string | null
           narration_url: string | null
           owner_id: string
+          reused_from_project_id: string | null
           status: string
           subject: string
           target_duration_seconds: number
@@ -230,10 +231,10 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          cache_key?: never
+          cache_key?: string | null
           class_level: number
           completed_at?: string | null
-          content_key?: never
+          content_key?: string | null
           cost_breakdown?: Json
           cost_usd?: number
           created_at?: string
@@ -246,6 +247,7 @@ export type Database = {
           narration_text?: string | null
           narration_url?: string | null
           owner_id: string
+          reused_from_project_id?: string | null
           status?: string
           subject: string
           target_duration_seconds?: number
@@ -254,10 +256,10 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          cache_key?: never
+          cache_key?: string | null
           class_level?: number
           completed_at?: string | null
-          content_key?: never
+          content_key?: string | null
           cost_breakdown?: Json
           cost_usd?: number
           created_at?: string
@@ -270,6 +272,7 @@ export type Database = {
           narration_text?: string | null
           narration_url?: string | null
           owner_id?: string
+          reused_from_project_id?: string | null
           status?: string
           subject?: string
           target_duration_seconds?: number
@@ -277,7 +280,15 @@ export type Database = {
           topic?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "cloud_lesson_projects_reused_from_project_id_fkey"
+            columns: ["reused_from_project_id"]
+            isOneToOne: false
+            referencedRelation: "cloud_lesson_projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       cloud_lesson_scenes: {
         Row: {
@@ -1095,6 +1106,7 @@ export type Database = {
       }
       lesson_video_scenes: {
         Row: {
+          caption: string
           completed_at: string | null
           created_at: string
           duration_seconds: number
@@ -1104,6 +1116,7 @@ export type Database = {
           image_prompt: string
           image_url: string | null
           narration: string
+          overlay: Json
           project_id: string
           scene_index: number
           status: string
@@ -1112,6 +1125,7 @@ export type Database = {
           video_url: string | null
         }
         Insert: {
+          caption?: string
           completed_at?: string | null
           created_at?: string
           duration_seconds: number
@@ -1121,6 +1135,7 @@ export type Database = {
           image_prompt: string
           image_url?: string | null
           narration: string
+          overlay?: Json
           project_id: string
           scene_index: number
           status?: string
@@ -1129,6 +1144,7 @@ export type Database = {
           video_url?: string | null
         }
         Update: {
+          caption?: string
           completed_at?: string | null
           created_at?: string
           duration_seconds?: number
@@ -1138,6 +1154,7 @@ export type Database = {
           image_prompt?: string
           image_url?: string | null
           narration?: string
+          overlay?: Json
           project_id?: string
           scene_index?: number
           status?: string
@@ -1459,10 +1476,32 @@ export type Database = {
     }
     Functions: {
       cancel_cloud_lesson: {
-        Args: {
-          p_project_id: string
-        }
-        Returns: Database["public"]["Tables"]["cloud_lesson_projects"]["Row"][]
+        Args: { p_project_id: string }
+        Returns: {
+          cache_key: string | null
+          class_level: number
+          completed_at: string | null
+          content_key: string | null
+          cost_breakdown: Json
+          cost_usd: number
+          created_at: string
+          error_message: string | null
+          final_video_url: string | null
+          id: string
+          language_code: string
+          learning_objective: string | null
+          narration_duration_seconds: number | null
+          narration_text: string | null
+          narration_url: string | null
+          owner_id: string
+          reused_from_project_id: string | null
+          status: string
+          subject: string
+          target_duration_seconds: number
+          title: string | null
+          topic: string
+          updated_at: string
+        }[]
         SetofOptions: {
           from: "*"
           to: "cloud_lesson_projects"
@@ -1501,11 +1540,37 @@ export type Database = {
         }
       }
       claim_cloud_lesson_job: {
-        Args: {
-          p_kinds: string[]
-          p_worker_id: string
-        }
-        Returns: Database["public"]["Tables"]["cloud_lesson_jobs"]["Row"][]
+        Args: { p_kinds: string[]; p_worker_id: string }
+        Returns: {
+          attempts: number
+          available_at: string
+          cancel_requested_at: string | null
+          completed_at: string | null
+          cost_usd: number
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          heartbeat_at: string | null
+          id: string
+          kind: string
+          locked_at: string | null
+          max_attempts: number
+          negative_prompt: string
+          output_metadata: Json
+          output_url: string | null
+          owner_id: string
+          parameters: Json
+          progress: number
+          project_id: string
+          prompt: string
+          provider_request_id: string | null
+          scene_id: string | null
+          source_image_url: string | null
+          started_at: string | null
+          status: string
+          updated_at: string
+          worker_id: string | null
+        }[]
         SetofOptions: {
           from: "*"
           to: "cloud_lesson_jobs"
@@ -1555,6 +1620,82 @@ export type Database = {
       }
       claim_lesson_video_job: {
         Args: { p_worker_id: string }
+        Returns: {
+          attempts: number
+          available_at: string
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          heartbeat_at: string | null
+          id: string
+          kind: string
+          locked_at: string | null
+          max_attempts: number
+          negative_prompt: string
+          output_metadata: Json
+          output_url: string | null
+          owner_id: string
+          parameters: Json
+          profile: string
+          progress: number
+          project_id: string
+          prompt: string
+          scene_id: string | null
+          source_image_url: string | null
+          started_at: string | null
+          status: string
+          updated_at: string
+          worker_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "lesson_video_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_lesson_video_job_for_owner: {
+        Args: { p_owner_id: string; p_worker_id: string }
+        Returns: {
+          attempts: number
+          available_at: string
+          cancel_requested_at: string | null
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          heartbeat_at: string | null
+          id: string
+          kind: string
+          locked_at: string | null
+          max_attempts: number
+          negative_prompt: string
+          output_metadata: Json
+          output_url: string | null
+          owner_id: string
+          parameters: Json
+          profile: string
+          progress: number
+          project_id: string
+          prompt: string
+          scene_id: string | null
+          source_image_url: string | null
+          started_at: string | null
+          status: string
+          updated_at: string
+          worker_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "lesson_video_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_lesson_video_job_for_projects: {
+        Args: { p_project_ids: string[]; p_worker_id: string }
         Returns: {
           attempts: number
           available_at: string
@@ -1672,6 +1813,42 @@ export type Database = {
         }
         Returns: boolean
       }
+      complete_lesson_video_preparation: {
+        Args: {
+          p_learning_objective: string
+          p_narration_text: string
+          p_project_id: string
+          p_scenes: Json
+          p_title: string
+        }
+        Returns: {
+          class_level: number
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          final_video_url: string | null
+          id: string
+          language_code: string
+          language_name: string
+          learning_objective: string
+          narration_duration_seconds: number | null
+          narration_text: string
+          narration_url: string | null
+          owner_id: string
+          status: string
+          subject: string
+          target_duration_seconds: number
+          title: string
+          topic: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "lesson_video_projects"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       complete_media_job: {
         Args: {
           p_job_id: string
@@ -1715,22 +1892,6 @@ export type Database = {
           topic: string
           updated_at: string
         }[]
-        SetofOptions: {
-          from: "*"
-          to: "lesson_video_projects"
-          isOneToOne: false
-          isSetofReturn: true
-        }
-      }
-      complete_lesson_video_preparation: {
-        Args: {
-          p_project_id: string
-          p_title: string
-          p_learning_objective: string
-          p_narration_text: string
-          p_scenes: Json
-        }
-        Returns: Database["public"]["Tables"]["lesson_video_projects"]["Row"][]
         SetofOptions: {
           from: "*"
           to: "lesson_video_projects"
@@ -1979,7 +2140,31 @@ export type Database = {
           p_target_duration_seconds?: number
           p_topic: string
         }
-        Returns: Database["public"]["Tables"]["cloud_lesson_projects"]["Row"][]
+        Returns: {
+          cache_key: string | null
+          class_level: number
+          completed_at: string | null
+          content_key: string | null
+          cost_breakdown: Json
+          cost_usd: number
+          created_at: string
+          error_message: string | null
+          final_video_url: string | null
+          id: string
+          language_code: string
+          learning_objective: string | null
+          narration_duration_seconds: number | null
+          narration_text: string | null
+          narration_url: string | null
+          owner_id: string
+          reused_from_project_id: string | null
+          status: string
+          subject: string
+          target_duration_seconds: number
+          title: string | null
+          topic: string
+          updated_at: string
+        }[]
         SetofOptions: {
           from: "*"
           to: "cloud_lesson_projects"
@@ -1990,13 +2175,33 @@ export type Database = {
       reserve_lesson_video_project: {
         Args: {
           p_class_level: number
-          p_subject: string
-          p_topic: string
           p_language_code: string
           p_language_name: string
+          p_subject: string
           p_target_duration_seconds: number
+          p_topic: string
         }
-        Returns: Database["public"]["Tables"]["lesson_video_projects"]["Row"][]
+        Returns: {
+          class_level: number
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          final_video_url: string | null
+          id: string
+          language_code: string
+          language_name: string
+          learning_objective: string
+          narration_duration_seconds: number | null
+          narration_text: string
+          narration_url: string | null
+          owner_id: string
+          status: string
+          subject: string
+          target_duration_seconds: number
+          title: string
+          topic: string
+          updated_at: string
+        }[]
         SetofOptions: {
           from: "*"
           to: "lesson_video_projects"

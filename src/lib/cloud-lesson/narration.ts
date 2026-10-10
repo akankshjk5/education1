@@ -11,7 +11,7 @@ import {
   toWav,
   trimSilence,
 } from './audio';
-import { type CallOptions, generateSpeech, type SpeechPace } from './gemini';
+import { type CallOptions, geminiTransport, generateSpeech, type GeminiTransport, type SpeechPace } from './gemini';
 import type { CostMeter } from './pricing';
 
 /**
@@ -110,15 +110,32 @@ export interface VoiceLessonOptions extends Omit<CallOptions, 'stage'> {
 export async function voiceLesson(options: VoiceLessonOptions): Promise<SceneVoice[]> {
   const voices: SceneVoice[] = new Array(options.sentences.length);
   const queue = options.sentences.map((sentence, position) => ({ sentence, index: position + 1 }));
+  let failed = false;
+  let firstError: unknown;
+  const transport: GeminiTransport = {
+    generateContent: (request) => {
+      if (failed) return Promise.reject(new Error('Another scene narration failed; remaining calls were stopped.'));
+      return (options.transport ?? geminiTransport()).generateContent(request);
+    },
+  };
   const workers = Array.from({ length: Math.max(1, Math.min(8, options.concurrency ?? 4)) }, async () => {
-    for (let next = queue.shift(); next; next = queue.shift()) {
-      const kept = options.reuse?.get(next.index);
-      voices[next.index - 1] = kept && !kept.overran
-        ? kept
-        : await voiceScene({ ...options, index: next.index, sentence: next.sentence });
+    try {
+      for (let next = queue.shift(); next && !failed; next = queue.shift()) {
+        const kept = options.reuse?.get(next.index);
+        voices[next.index - 1] = kept && !kept.overran
+          ? kept
+          : await voiceScene({ ...options, transport, index: next.index, sentence: next.sentence });
+      }
+    } catch (error) {
+      if (!failed) firstError = error;
+      failed = true;
+      throw error;
     }
   });
-  await Promise.all(workers);
+  // Do not record a job's final cost while sibling paid calls are still in
+  // flight. A failed take stops new scenes; already-started calls are drained.
+  await Promise.allSettled(workers);
+  if (failed) throw firstError;
   return voices;
 }
 

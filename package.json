@@ -16,6 +16,9 @@
     "smoke:cloud-skills": "tsx --require ./scripts/allow-server-only.cjs scripts/smoke-cloud-lesson-skills.mts",
     "test:cloud-gemini": "tsx --require ./scripts/allow-server-only.cjs scripts/test-cloud-lesson-gemini.mts",
     "smoke:cloud-gemini": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/smoke-cloud-gemini.mts",
+    "test:cloud-prepare": "tsx --require ./scripts/allow-server-only.cjs scripts/test-cloud-prepare.mts",
+    "worker:cloud-prepare": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/cloud-lesson-worker.mts --kinds prepare",
+    "smoke:cloud-prepare": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/smoke-cloud-prepare.mts",
     "db:start": "supabase start",
     "db:stop": "supabase stop",
     "db:link": "supabase link",
@@ -23,7 +26,12 @@
     "db:reset": "supabase db reset",
     "db:diff": "supabase db diff -f",
     "db:lint": "supabase db lint",
-    "db:types": "supabase gen types typescript --linked --schema public > src/lib/supabase/database.types.ts"
+    "db:types": "supabase gen types typescript --linked --schema public > src/lib/supabase/database.types.ts",
+    "worker:cloud-image": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/cloud-lesson-worker.mts --kinds image",
+    "test:cloud-image": "tsx --require ./scripts/allow-server-only.cjs scripts/test-cloud-image.mts",
+    "worker:cloud-media": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/cloud-media-worker.mts",
+    "test:cloud-media": "tsx --require ./scripts/allow-server-only.cjs scripts/test-cloud-media.mts",
+    "test:cloud-ui": "tsx --require ./scripts/allow-server-only.cjs scripts/test-cloud-ui.mts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.8.2",

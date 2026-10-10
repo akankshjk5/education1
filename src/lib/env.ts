@@ -254,6 +254,39 @@ export const serverEnv = {
   get cloudLessonImageModel() {
     return process.env.CLOUD_LESSON_IMAGE_MODEL?.trim() || 'gemini-nano-banana-2.1';
   },
+  get cloudLessonHiggsfieldCredentials() {
+    const value = process.env.HF_CREDENTIALS?.trim() || process.env.HF_KEY?.trim()
+      || (process.env.HF_API_KEY_ID && process.env.HF_API_KEY_SECRET
+        ? `${process.env.HF_API_KEY_ID}:${process.env.HF_API_KEY_SECRET}` : undefined)
+      || process.env.HIGGSFIELD?.trim();
+    const credentials = required('HF_CREDENTIALS (KEY_ID:KEY_SECRET)', value);
+    if (!/^[^\s:]+:[^\s:]+$/.test(credentials)) throw new Error('HF_CREDENTIALS must be KEY_ID:KEY_SECRET.');
+    return credentials;
+  },
+  /** Estimate only; account invoices remain authoritative. Recheck promotional rates. */
+  get cloudLessonHiggsfieldUsdPerSecond() {
+    const rate = Number(process.env.CLOUD_LESSON_HIGGSFIELD_USD_PER_SECOND ?? '0.035');
+    if (!Number.isFinite(rate) || rate < 0) throw new Error('Invalid CLOUD_LESSON_HIGGSFIELD_USD_PER_SECOND.');
+    return rate;
+  },
+  get cloudLessonPython() { return process.env.CLOUD_LESSON_PYTHON?.trim() || 'python'; },
+  get cloudLessonFfmpeg() { return process.env.CLOUD_LESSON_FFMPEG?.trim() || 'ffmpeg'; },
+  get cloudLessonFfprobe() { return process.env.CLOUD_LESSON_FFPROBE?.trim() || 'ffprobe'; },
+  get cloudLessonFontsDir() { return process.env.CLOUD_LESSON_FONTS_DIR?.trim() || 'ops/cloud/fonts'; },
+  /** Local encoding tools need runtime paths and locale, but no API credentials. */
+  get cloudLessonSubprocessEnv(): NodeJS.ProcessEnv {
+    const values: NodeJS.ProcessEnv = { NODE_ENV: process.env.NODE_ENV ?? 'production' };
+    for (const name of ['PATH', 'Path', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR',
+      'HOME', 'LANG', 'LC_ALL', 'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'PYTHONPATH']) {
+      const value = process.env[name];
+      if (value !== undefined) values[name] = value;
+    }
+    return values;
+  },
+  get cloudLessonProviderMediaHosts() {
+    return (process.env.CLOUD_LESSON_PROVIDER_MEDIA_HOSTS || 'higgsfield.ai,higgs.ai,cloudfront.net')
+      .split(',').map((host) => host.trim().toLowerCase()).filter(Boolean);
+  },
   /** Prebuilt Gemini voice for narration, e.g. Kore. */
   get cloudLessonTtsVoice() {
     return process.env.CLOUD_LESSON_TTS_VOICE?.trim() || process.env.GEMINI_TTS_VOICE?.trim() || 'Kore';

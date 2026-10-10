@@ -319,7 +319,9 @@ export async function generateStructured<T>(options: StructuredOptions<T>): Prom
       }
       // A schema Gemini will not accept is also a 400 every time. Fall back to
       // plain JSON mode once; Zod still enforces the shape.
-      if (schemaJson && refused && /schema/i.test(error.message)) {
+      // Some models reject a complex schema with only INVALID_ARGUMENT,
+      // without naming the schema. Probe plain JSON once in that case too.
+      if (schemaJson && refused && /schema|Request contains an invalid argument/i.test(error.message)) {
         console.warn(`[cloud-lesson] ${skill.name}: Gemini refused the response schema; retrying in plain JSON mode`);
         schemaJson = null;
         attempt -= 1;
@@ -486,6 +488,7 @@ export interface ImageOptions extends Omit<CallOptions, 'stage'> {
   model: string;
   prompt: string;
   aspectRatio?: string;
+  imageSize?: '1K' | '2K' | '4K';
   /** Earlier keyframe of the same lesson, passed so the style stays consistent. */
   styleReference?: { mimeType: string; data: Buffer };
 }
@@ -504,7 +507,7 @@ export async function generateImage(options: ImageOptions): Promise<{ mimeType: 
     contents: [{ role: 'user', parts }],
     config: {
       responseModalities: ['IMAGE'],
-      imageConfig: { aspectRatio: options.aspectRatio ?? '16:9' },
+      imageConfig: { aspectRatio: options.aspectRatio ?? '16:9', ...(options.imageSize ? { imageSize: options.imageSize } : {}) },
     },
   }, { ...options, stage: 'image' });
   const image = response.candidates?.[0]?.content?.parts?.find((part) => part.inlineData?.data)?.inlineData;
