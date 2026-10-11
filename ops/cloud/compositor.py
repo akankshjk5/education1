@@ -167,7 +167,7 @@ def math_text(text: str) -> str:
     return text.replace("*", "×").replace("/", "÷").replace(" - ", " − ")
 
 
-def draw_overlay(canvas: Image.Image, overlay: dict, t: float, mathfont):
+def draw_overlay(canvas: Image.Image, overlay: dict, t: float, mathfont, illustrated=False):
     draw = ImageDraw.Draw(canvas)
     kind = overlay["kind"]
     if kind == "none" or t < 0.5:
@@ -186,7 +186,9 @@ def draw_overlay(canvas: Image.Image, overlay: dict, t: float, mathfont):
                       (tip[0] - 45 * math.cos(angle + .5), tip[1] - 45 * math.sin(angle + .5))], fill=RED)
         return
     left, top, right, bottom = 1320, 150, 1830, 875
-    draw.rounded_rectangle((left, top, right, bottom), radius=20, fill="#f8f4ea", outline="#7c93a3", width=4)
+    draw.rounded_rectangle((left, top, right, bottom), radius=20,
+                           fill="white" if illustrated else "#f8f4ea",
+                           outline="#168d99" if illustrated else "#7c93a3", width=4)
     if kind == "equation":
         for i, text in enumerate(overlay["steps"]):
             if t < 0.7 + i * 1.2:
@@ -253,13 +255,18 @@ def render_scene(config: dict) -> dict:
         sizing = ImageDraw.Draw(caption)
         if any(sizing.textlength(math_text(step), font=mathfont) > 460 for step in overlay["steps"]):
             overlay, warning = {"kind": "none"}, "Equation would not fit legibly and was omitted."
-    base = Image.new("RGB", (WIDTH, HEIGHT), PAPER)
+    illustrated = config.get("visualStyle", "editorial") == "illustrated"
+    base = Image.new("RGB", (WIDTH, HEIGHT), "#edf5ff" if illustrated else PAPER)
     grid = ImageDraw.Draw(base)
-    for x in range(0, WIDTH, 48):
-        grid.line((x, 0, x, HEIGHT), fill="#ded3bf")
-    for y in range(0, HEIGHT, 48):
-        grid.line((0, y, WIDTH, y), fill="#ded3bf")
-    grid.rounded_rectangle((box[0] - 12, box[1] - 12, box[2] + 12, box[3] + 12), radius=14, fill="#f8f4ea", outline="#7c93a3", width=5)
+    if not illustrated:
+        for x in range(0, WIDTH, 48):
+            grid.line((x, 0, x, HEIGHT), fill="#ded3bf")
+        for y in range(0, HEIGHT, 48):
+            grid.line((0, y, WIDTH, y), fill="#ded3bf")
+    grid.rounded_rectangle((box[0] - 12, box[1] - 12, box[2] + 12, box[3] + 12), radius=24 if illustrated else 14,
+                           fill="white" if illustrated else "#f8f4ea", outline="#168d99" if illustrated else "#7c93a3", width=5)
+    if illustrated:
+        grid.rounded_rectangle((90, 950, 1830, 1045), radius=28, fill="white")
     command_args = [config["ffmpeg"], "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{WIDTH}x{HEIGHT}",
                     "-r", str(FPS), "-i", "-", "-an", "-frames:v", str(FRAMES), "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                     "-threads", "2", "-pix_fmt", "yuv420p", "-movflags", "+faststart", config["output"]]
@@ -294,8 +301,20 @@ def render_scene(config: dict) -> dict:
                     photo = ImageOps.fit(image.crop((x, y, x + cropw, y + croph)), (w, h), Image.Resampling.LANCZOS)
                 canvas = base.copy()
                 canvas.paste(photo, box[:2])
-                canvas.paste(caption, (0, 0), caption)
-                draw_overlay(canvas, overlay, t, mathfont)
+                if illustrated:
+                    # Short fade-in/out smooths scene changes without shortening slots
+                    # or shifting narration. Text stays crisp and stationary.
+                    reveal = min(1.0, t / .35, (SLOT_SECONDS - t) / .35)
+                    if reveal < 1:
+                        canvas = Image.blend(base, canvas, max(0, reveal))
+                    if t >= .25:
+                        canvas.paste(caption, (0, 0), caption)
+                    progress = ImageDraw.Draw(canvas)
+                    progress.rounded_rectangle((90, 1058, 1830, 1066), radius=4, fill="#d8e6f2")
+                    progress.rounded_rectangle((90, 1058, 90 + max(8, int(1740 * t / SLOT_SECONDS)), 1066), radius=4, fill="#168d99")
+                else:
+                    canvas.paste(caption, (0, 0), caption)
+                draw_overlay(canvas, overlay, t, mathfont, illustrated=illustrated)
                 encoder.stdin.write(canvas.tobytes())
             encoder.stdin.close()
             encoder.wait(timeout=180)
@@ -310,32 +329,36 @@ def render_scene(config: dict) -> dict:
                     CHILDREN.discard(child)
     metadata = video_info(config["output"], config, SLOT_SECONDS)
     metadata.update({"motionMode": scene["motion_mode"], "generatedMotionSeconds": 5 if raw_clip else 0,
-                     "warnings": [warning] if warning else [], "compositionVersion": 1})
+                     "warnings": [warning] if warning else [], "visualStyle": config.get("visualStyle", "editorial"), "compositionVersion": 2})
     return metadata
 
 
 def assemble(config: dict) -> dict:
     clips, scenes = config["clips"], config["scenes"]
-    if len(clips) != 8 or [s["scene_index"] for s in scenes] != list(range(1, 9)):
-        raise ValueError("Assembly needs eight ordered scenes")
+    seconds = config.get("durationSeconds", 60)
+    if seconds not in (30, 60):
+        raise ValueError("Lesson duration must be 30 or 60 seconds")
+    count = int(seconds / SLOT_SECONDS)
+    if len(clips) != count or [s["scene_index"] for s in scenes] != list(range(1, count + 1)):
+        raise ValueError("Assembly needs four or eight ordered scenes matching the duration")
     for path in clips:
         video_info(path, config, SLOT_SECONDS)
     audio = probe(config["narration"], config["ffprobe"])
-    if abs(float(audio["format"]["duration"]) - 60) > .25 or not any(s["codec_type"] == "audio" for s in audio["streams"]):
-        raise ValueError("Narration must be sixty seconds of audio")
+    if abs(float(audio["format"]["duration"]) - seconds) > .25 or not any(s["codec_type"] == "audio" for s in audio["streams"]):
+        raise ValueError("Narration must match the selected duration")
     args = [config["ffmpeg"], "-y", "-v", "error", "-filter_complex_threads", "2"]
     for clip in clips:
         args.extend(["-protocol_whitelist", "file,pipe", "-format_whitelist", "mov", "-threads", "2", "-i", clip])
     args.extend(["-protocol_whitelist", "file,pipe", "-format_whitelist", "wav", "-i", config["narration"]])
-    filters = [f"[{i}:v]trim=duration=7.5,setpts=PTS-STARTPTS,setsar=1[v{i}]" for i in range(8)]
-    filters.append("".join(f"[v{i}]" for i in range(8)) + "concat=n=8:v=1:a=0[video]")
-    filters.append("[8:a]apad,atrim=duration=60,asetpts=PTS-STARTPTS[audio]")
-    args.extend(["-filter_complex", ";".join(filters), "-map", "[video]", "-map", "[audio]", "-t", "60",
+    filters = [f"[{i}:v]trim=duration=7.5,setpts=PTS-STARTPTS,setsar=1[v{i}]" for i in range(count)]
+    filters.append("".join(f"[v{i}]" for i in range(count)) + f"concat=n={count}:v=1:a=0[video]")
+    filters.append(f"[{count}:a]apad,atrim=duration={seconds},asetpts=PTS-STARTPTS[audio]")
+    args.extend(["-filter_complex", ";".join(filters), "-map", "[video]", "-map", "[audio]", "-t", str(seconds),
                  "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-threads", "2", "-pix_fmt", "yuv420p", "-r", str(FPS),
                  "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", config["output"]])
     command(args, 900)
-    metadata = video_info(config["output"], config, 60, audio=True)
-    metadata.update({"sceneCount": 8, "sceneSeconds": SLOT_SECONDS, "compositionVersion": 1})
+    metadata = video_info(config["output"], config, seconds, audio=True)
+    metadata.update({"sceneCount": count, "sceneSeconds": SLOT_SECONDS, "compositionVersion": 2})
     return metadata
 
 

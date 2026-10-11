@@ -26,10 +26,12 @@ export const CLOUD_LESSON_LANGUAGES = VIDEO_LANGUAGES.filter(
     (CLOUD_LESSON_LANGUAGE_CODES as readonly string[]).includes(language.code),
 );
 
-/** 60 seconds = 8 scenes of 7.5 s. The database refuses any other length. */
+/** Both durations use exact 7.5-second scene slots. */
 export const CLOUD_LESSON_DURATION_SECONDS = 60;
 export const CLOUD_LESSON_SCENE_COUNT = 8;
 export const CLOUD_LESSON_SCENE_SECONDS = CLOUD_LESSON_DURATION_SECONDS / CLOUD_LESSON_SCENE_COUNT;
+export const CLOUD_LESSON_VISUAL_STYLES = ['illustrated', 'editorial'] as const;
+export const cloudLessonSceneCount = (durationSeconds = 60) => durationSeconds / CLOUD_LESSON_SCENE_SECONDS;
 
 /**
  * Per-teacher limits. The CONTROL is `reserve_cloud_lesson` in Postgres, which
@@ -59,8 +61,12 @@ export const CreateCloudLessonSchema = z.object({
   subject: z.string().trim().min(2).max(100),
   topic: z.string().trim().min(3).max(300),
   languageCode: z.enum(CLOUD_LESSON_LANGUAGE_CODES).default('en-IN'),
+  durationSeconds: z.union([z.literal(30), z.literal(60)]).default(60),
+  visualStyle: z.enum(CLOUD_LESSON_VISUAL_STYLES).default('illustrated'),
 });
-export type CreateCloudLessonInput = z.infer<typeof CreateCloudLessonSchema>;
+export type CreateCloudLessonInput = Omit<z.infer<typeof CreateCloudLessonSchema>, 'durationSeconds' | 'visualStyle'> & {
+  durationSeconds?: 30 | 60; visualStyle?: (typeof CLOUD_LESSON_VISUAL_STYLES)[number];
+};
 
 // ── Rows ────────────────────────────────────────────────────────────────────
 
@@ -122,7 +128,8 @@ export const CloudLessonProjectSchema = z.object({
   subject: z.string(),
   topic: z.string(),
   language_code: z.enum(CLOUD_LESSON_LANGUAGE_CODES),
-  target_duration_seconds: z.literal(CLOUD_LESSON_DURATION_SECONDS),
+  target_duration_seconds: z.union([z.literal(30), z.literal(60)]),
+  visual_style: z.enum(CLOUD_LESSON_VISUAL_STYLES).optional(),
   title: z.string().nullable(),
   learning_objective: z.string().nullable(),
   narration_text: z.string().nullable(),
@@ -202,7 +209,7 @@ export type CloudLessonPreparedScene = z.infer<typeof CloudLessonPreparedSceneSc
 
 export const CloudLessonPreparedScenesSchema = z
   .array(CloudLessonPreparedSceneSchema)
-  .length(CLOUD_LESSON_SCENE_COUNT)
+  .refine(scenes => scenes.length === 4 || scenes.length === 8, 'Expected four or eight scenes')
   .superRefine((scenes, ctx) => {
     scenes.forEach((scene, position) => {
       if (scene.index !== position + 1) {

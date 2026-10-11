@@ -14,7 +14,7 @@ const scene: MediaScene = { id, scene_index: 1, duration_seconds: 7.5, caption: 
   status: 'generating_video', motion_mode: 'animate', image_url: job.source_image_url!, video_url: null };
 let passed = 0;
 async function test(name: string, fn: () => Promise<void>) { await fn(); console.log(`PASS ${name}`); passed++; }
-async function run(config: { reuse?: boolean; still?: boolean; assemble?: boolean; resume?: boolean; charged?: boolean; cancel?: boolean;
+async function run(config: { short?: boolean; reuse?: boolean; still?: boolean; assemble?: boolean; resume?: boolean; charged?: boolean; cancel?: boolean;
   lost?: boolean; cancelPoll?: boolean; lostPoll?: boolean; uploadCancel?: boolean; terminal?: boolean; ambiguous?: boolean;
   renderFail?: boolean; completeLost?: boolean; signal?: AbortSignal } = {}) {
   let submits = 0; let polls = 0; let cancels = 0; let uploads = 0; let completed = 0; let failed = 0; let renders = 0;
@@ -37,8 +37,8 @@ async function run(config: { reuse?: boolean; still?: boolean; assemble?: boolea
   };
   const store: CloudMediaStore = {
     async claim() { return current; },
-    async bundle() { return { language: 'en-IN', narrationUrl: 'https://storage.test/narration.wav',
-      scenes: config.assemble ? Array.from({ length: 8 }, (_, i) => ({ ...scene, scene_index: i + 1,
+    async bundle() { return { language: 'en-IN', durationSeconds: config.short ? 30 : 60, visualStyle: 'illustrated', narrationUrl: 'https://storage.test/narration.wav',
+      scenes: config.assemble ? Array.from({ length: config.short ? 4 : 8 }, (_, i) => ({ ...scene, scene_index: i + 1,
         video_url: `https://storage.test/${i}.mp4`, status: 'succeeded' })) : [{ ...scene, motion_mode: config.still ? 'still' : 'animate' }] }; },
     async heartbeat(_, __, requestId) { if (requestId) persisted.push(requestId); return state; },
     async upload() { uploads++; if (config.uploadCancel) state = 'cancel'; return 'https://storage.test/result.mp4'; },
@@ -46,6 +46,8 @@ async function run(config: { reuse?: boolean; still?: boolean; assemble?: boolea
     async fail(_, code, message) { failed++; assert.ok(code.startsWith('cloud_media') || code === 'higgsfield_failed'); assert.ok(!message.includes('secret')); return true; },
   };
   const renderer: CloudMediaRenderer = { async preflight() {}, async render(manifest) {
+    assert.equal(manifest.durationSeconds, config.short ? 30 : 60);
+    assert.equal(manifest.visualStyle, 'illustrated');
     renders++; if (config.renderFail) throw new Error('secret provider body');
     assert.equal(persisted.includes(providerId), !config.still && !config.assemble && !config.reuse);
     await writeFile(String(manifest.output), 'fake mp4'); return { width: 1920, height: 1080, durationSeconds: config.assemble ? 60 : 7.5 };
@@ -58,6 +60,12 @@ async function run(config: { reuse?: boolean; still?: boolean; assemble?: boolea
 await test('animation persisted, raw retained, scene composed and completed', async () => {
   const r = await run(); assert.equal(r.result.status, 'completed'); assert.equal(r.submits, 1); assert.equal(r.uploads, 2);
   assert.equal(r.result.costUsd, .175); assert.equal(r.metadata.model, HIGGSFIELD_MODEL); assert.ok(r.metadata.rawVideoUrl);
+});
+await test('30-second assembly sends four scenes, duration and style to the renderer', async () => {
+  const r = await run({ short: true, assemble: true });
+  assert.equal(r.result.status, 'completed');
+  assert.equal(r.downloads.length, 5);
+  assert.equal(r.submits, 0);
 });
 await test('reused animation composes new captions without submitting or polling Higgsfield', async () => {
   const r = await run({ reuse: true }); assert.equal(r.result.status, 'completed');

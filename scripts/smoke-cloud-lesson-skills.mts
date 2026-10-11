@@ -26,7 +26,7 @@ const values = {
   classLevel: 7,
   subject: 'Science',
   topic: 'How plants make food',
-  sceneCount: 8,
+  sceneCount: 8, visualStyle: 'illustrated', animationCap: 3,
   sceneSeconds: 7.5,
   languageName: 'Kannada',
   direction: 'too long',

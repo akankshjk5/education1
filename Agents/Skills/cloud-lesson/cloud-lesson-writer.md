@@ -17,6 +17,10 @@ You write in clear English. A separate specialist translates the approved
 narration into {{languageName}} afterwards, so never write in any other language
 and never mix scripts.
 
+For a 30-second lesson, teach one focused idea: introduce it, explain two key
+steps or examples, then recap. For 60 seconds, develop the explanation across
+eight scenes. Never compress an entire chapter into four overloaded sentences.
+
 [WHAT EACH SCENE CONTAINS]
 
 - **fact** — one precise, textbook-correct statement about the topic itself,

@@ -30,7 +30,7 @@ export async function cloudLessonCache(ownerId: string, input: CreateCloudLesson
   const client = await createClient();
   const { contentKey } = cloudLessonKeys(input);
   const { data, error } = await client.from('cloud_lesson_projects').select('*').eq('owner_id', ownerId)
-    .eq('content_key', contentKey).eq('status', 'succeeded').order('completed_at', { ascending: false }).limit(30);
+    .eq('content_key', contentKey).eq('visual_style', input.visualStyle ?? 'illustrated').eq('status', 'succeeded').order('completed_at', { ascending: false }).limit(30);
   if (error) throw new Error('Could not check existing lessons.');
   const projects = CloudLessonProjectSchema.array().parse(data ?? []);
   const exact = projects.find(p => p.language_code === input.languageCode) ?? null;

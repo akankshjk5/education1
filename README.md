@@ -567,3 +567,31 @@ Validation: `npm run test:cloud-ui`, all other `test:cloud-*` scripts,
 Postgres ownership/cache/reuse tests, run `supabase db query --linked --file
 scripts/test-cloud-cache.sql`. Its fixtures remain uncommitted and invisible
 to workers, then are rolled back, so it cannot trigger generation.
+
+
+### Cloud lesson duration and presentation
+
+Lesson Video now offers 30 seconds (four scenes) or 60 seconds (eight scenes).
+Every scene retains its 7.5-second narration slot. Scripts are written for the
+selected length; a short lesson explains one focused idea and ends with a recap.
+
+The default **2D illustrated explainer** uses bold outlines, a shared teal/coral/
+amber palette, a clean pale-blue frame, timed caption reveals, animated teaching
+overlays, gentle camera motion and short fades. Higgsfield animates at most two
+scenes for 30 seconds or three for 60 seconds. **Editorial photographs** preserves
+the original warm-paper look and permits up to four/six provider animations.
+Static illustrations use camera motion and overlays; the compositor does not
+independently animate arbitrary objects inside a generated image.
+
+Apply `20261011120000_cloud_lesson_duration_style.sql` after the cloud reuse
+migration, then regenerate database types. Existing projects keep the editorial
+style. Cache lookup and visual reuse are scoped to the same owner, duration and
+style; only language may differ for visual reuse. Restart the web app and all
+three cloud workers after upgrading so existing processes reload the new code
+and prompts. No new provider keys or GPU dependencies are needed.
+
+Offline checks: `npm run test:cloud-prepare`, `npm run test:cloud-media`, and
+`npm run test:cloud-ui`. Database checks in `scripts/test-cloud-duration.sql`
+use fixtures inside a rolled-back transaction, so workers cannot claim them.
+`ops/cloud/test_compositor.py` with the FFmpeg, FFprobe and fonts arguments also
+renders synthetic 30- and 60-second 1080p videos with audio, without model calls.

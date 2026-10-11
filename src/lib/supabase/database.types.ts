@@ -229,6 +229,7 @@ export type Database = {
           title: string | null
           topic: string
           updated_at: string
+          visual_style: string
         }
         Insert: {
           cache_key?: string | null
@@ -254,6 +255,7 @@ export type Database = {
           title?: string | null
           topic: string
           updated_at?: string
+          visual_style?: string
         }
         Update: {
           cache_key?: string | null
@@ -279,6 +281,7 @@ export type Database = {
           title?: string | null
           topic?: string
           updated_at?: string
+          visual_style?: string
         }
         Relationships: [
           {
@@ -1501,6 +1504,7 @@ export type Database = {
           title: string | null
           topic: string
           updated_at: string
+          visual_style: string
         }[]
         SetofOptions: {
           from: "*"
@@ -2139,6 +2143,7 @@ export type Database = {
           p_subject: string
           p_target_duration_seconds?: number
           p_topic: string
+          p_visual_style?: string
         }
         Returns: {
           cache_key: string | null
@@ -2164,6 +2169,7 @@ export type Database = {
           title: string | null
           topic: string
           updated_at: string
+          visual_style: string
         }[]
         SetofOptions: {
           from: "*"

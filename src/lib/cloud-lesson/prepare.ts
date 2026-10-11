@@ -3,7 +3,7 @@ import 'server-only';
 import { z } from 'zod';
 
 import {
-  CLOUD_LESSON_SCENE_COUNT, CLOUD_LESSON_SCENE_SECONDS,
+  CLOUD_LESSON_SCENE_COUNT, CLOUD_LESSON_SCENE_SECONDS, cloudLessonSceneCount,
   CloudLessonPreparedScenesSchema, CreateCloudLessonSchema,
   type CloudLessonPreparedScene, type CreateCloudLessonInput,
 } from '@/lib/videos/cloud-lesson-contracts';
@@ -40,23 +40,22 @@ function ordered<T extends { index: number }>(scenes: T[], ctx: z.RefinementCtx,
     ctx.addIssue({ code: 'custom', path: ['scenes'], message: `Return scenes in order: ${expected.join(', ')}` });
   }
 }
-const ALL_INDEXES = Array.from({ length: CLOUD_LESSON_SCENE_COUNT }, (_, index) => index + 1);
 const WrittenSceneSchema = z.object({
   index: IndexSchema, fact: FactSchema, narration: NarrationSchema,
   caption: CaptionSchema, overlay: z.preprocess(coerceOverlay, LessonOverlaySchema),
 });
-const WrittenPlanSchema = z.object({
+const writtenPlanSchema = (count: number) => z.object({
   title: EnglishSchema.min(3).max(200), learningObjective: EnglishSchema.min(10).max(500),
-  scenes: z.array(WrittenSceneSchema).length(CLOUD_LESSON_SCENE_COUNT),
-}).superRefine((plan, ctx) => ordered(plan.scenes, ctx, ALL_INDEXES));
+  scenes: z.array(WrittenSceneSchema).length(count),
+}).superRefine((plan, ctx) => ordered(plan.scenes, ctx, Array.from({ length: count }, (_, i) => i + 1)));
 type WrittenScene = z.infer<typeof WrittenSceneSchema>;
 
-const AuditedSchema = z.object({
+const auditedSchema = (count: number) => z.object({
   scenes: z.array(z.object({
     index: IndexSchema, verdict: z.enum(['correct', 'corrected', 'softened']),
     fact: FactSchema, narration: NarrationSchema,
-  })).length(CLOUD_LESSON_SCENE_COUNT),
-}).superRefine((plan, ctx) => ordered(plan.scenes, ctx, ALL_INDEXES));
+  })).length(count),
+}).superRefine((plan, ctx) => ordered(plan.scenes, ctx, Array.from({ length: count }, (_, i) => i + 1)));
 
 const DirectionSchema = z.object({
   index: IndexSchema,
@@ -81,9 +80,9 @@ function subjectWords(text: string): Set<string> {
 function directorSchema(scenes: WrittenScene[], input: CreateCloudLessonInput) {
   return z.object({
     visualBible: EnglishSchema.min(20).max(500),
-    scenes: z.array(DirectionSchema).length(CLOUD_LESSON_SCENE_COUNT),
+    scenes: z.array(DirectionSchema).length(scenes.length),
   }).superRefine((plan, ctx) => {
-    ordered(plan.scenes, ctx, ALL_INDEXES);
+    ordered(plan.scenes, ctx, scenes.map(s => s.index));
     const seen = new Set<string>();
     plan.scenes.forEach((scene, position) => {
       const fingerprint = scene.visualDescription.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -149,12 +148,15 @@ export interface PreparedCloudLesson {
 /** Eight scenes and voice-over only. Images/videos are queued by the completion RPC. */
 export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Promise<PreparedCloudLesson> {
   const input = CreateCloudLessonSchema.parse(options.input);
+  const sceneCount = cloudLessonSceneCount(input.durationSeconds);
+  const animationCap = input.visualStyle === "illustrated" ? (sceneCount === 4 ? 2 : 3) : Math.min(6, sceneCount);
   const meter = options.meter ?? new CostMeter();
   const warnings: string[] = [];
   const languageName = videoLanguage(input.languageCode).promptName;
   const values: PromptValues = {
     classLevel: input.classLevel, subject: input.subject, topic: input.topic,
-    languageName, sceneCount: 8, sceneSeconds: 7.5, durationSeconds: 60,
+    languageName, sceneCount, sceneSeconds: 7.5, durationSeconds: input.durationSeconds,
+    visualStyle: input.visualStyle, animationCap,
   };
   const checkpoint = async (stage: string, progress: number) => { await options.checkpoint?.(stage, progress); };
   const request = async <T>(name: CloudLessonSkillName, schema: z.ZodType<T>, userPrompt: string, extra: PromptValues = {}) => {
@@ -169,6 +171,7 @@ export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Pr
   let visualBible: string;
   if (options.sourcePlan) {
     const source = CloudLessonSourcePlanSchema.parse(options.sourcePlan);
+    if (source.scenes.length !== sceneCount) throw new Error("Source plan duration does not match the lesson.");
     await checkpoint('reuse-audited-plan', 48);
     written = source;
     scenes = source.scenes.map(scene => WrittenSceneSchema.parse(scene));
@@ -181,7 +184,7 @@ export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Pr
     if (!reference) warnings.push('No encyclopedia reference was available; facts were reviewed against model knowledge.');
 
     await checkpoint('writer', 12);
-    const initialPlan = await request('cloud-lesson-writer', WrittenPlanSchema, `Topic: ${input.topic}${referenceText}`);
+    const initialPlan = await request('cloud-lesson-writer', writtenPlanSchema(sceneCount), `Topic: ${input.topic}${referenceText}`);
     written = initialPlan;
     scenes = initialPlan.scenes;
     await checkpoint('fact-auditor', 25);
@@ -192,7 +195,7 @@ export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Pr
       : [];
     for (let round = 0; round < 2; round += 1) {
       const flags = flagsFor(scenes);
-      const audited = await request('cloud-lesson-fact-auditor', AuditedSchema,
+      const audited = await request('cloud-lesson-fact-auditor', auditedSchema(sceneCount),
         `Topic: ${input.topic}\nScenes: ${JSON.stringify(scenes)}\nUnsupported reference numbers (correct or remove): ${JSON.stringify(flags)}${referenceText}`);
       scenes = scenes.map((scene, index) => ({ ...scene, fact: audited.scenes[index].fact, narration: audited.scenes[index].narration }));
       if (!flagsFor(scenes).length) break;
@@ -240,10 +243,10 @@ export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Pr
     visualBible = directed.visualBible;
     prepared = scenes.map((scene, index) => {
       const direction = directed.scenes[index];
-      const motionMode = direction.motionMode === 'animate' && ++animateCount <= 6 ? 'animate' : 'still';
+      const motionMode = direction.motionMode === 'animate' && ++animateCount <= animationCap ? 'animate' : 'still';
       return { ...scene, visualDescription: direction.visualDescription, motionDescription: direction.motionDescription, motionMode };
     });
-    if (animateCount > 6) warnings.push('Animation count capped at six; remaining scenes use still motion.');
+    if (animateCount > animationCap) warnings.push(`Animation count capped at ${animationCap}; remaining scenes use local motion.`);
 
   }
   const sourcePlan = CloudLessonSourcePlanSchema.parse({ title: written.title,
@@ -273,7 +276,7 @@ export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Pr
     ...scenes.map((scene) => ({ id: `caption-${scene.index}`, kind: 'caption' as const, text: scene.caption }))];
   const translated = await translate(items);
   const title = translated[0];
-  prepared.forEach((scene, index) => { scene.narration = translated[index + 1]; scene.caption = translated[index + 9]; });
+  prepared.forEach((scene, index) => { scene.narration = translated[index + 1]; scene.caption = translated[index + 1 + sceneCount]; });
 
   await checkpoint('narration', 68);
   let voices = await voiceLesson({ ...options, meter, sentences: prepared.map((scene) => scene.narration), languageCode: input.languageCode, slotSeconds: CLOUD_LESSON_SCENE_SECONDS });
@@ -294,8 +297,9 @@ export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Pr
   }
   await checkpoint('narration-ready', 92);
   const narration = assembleNarration(voices, CLOUD_LESSON_SCENE_SECONDS);
-  if (Math.abs(narration.durationSeconds - 60) > 0.001) throw new Error('Narration did not match the sixty-second timeline.');
+  if (Math.abs(narration.durationSeconds - input.durationSeconds) > 0.001) throw new Error('Narration did not match the selected timeline.');
   const validatedScenes = CloudLessonPreparedScenesSchema.parse(prepared);
+  if (validatedScenes.length !== sceneCount) throw new Error("Scene count does not match the selected duration.");
   return {
     title, learningObjective: written.learningObjective, scenes: validatedScenes,
     narrationText: validatedScenes.map((scene) => scene.narration).join(' '), narration, costUsd: meter.totalUsd,

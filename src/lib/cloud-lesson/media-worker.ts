@@ -28,7 +28,7 @@ export const MediaSceneSchema = z.object({
 });
 export type MediaScene = z.infer<typeof MediaSceneSchema>;
 export interface MediaBundle {
-  language: 'en-IN' | 'hi-IN' | 'kn-IN'; narrationUrl: string; scenes: MediaScene[];
+  language: 'en-IN' | 'hi-IN' | 'kn-IN'; visualStyle?: 'illustrated' | 'editorial'; durationSeconds?: 30 | 60; narrationUrl: string; scenes: MediaScene[];
 }
 export interface CloudMediaStore {
   claim(workerId: string, kinds: ('video' | 'assemble')[]): Promise<MediaJob | null>;
@@ -49,20 +49,20 @@ export function createCloudMediaStore(): CloudMediaStore {
     },
     async bundle(job) {
       const { data, error } = await client.from('cloud_lesson_projects')
-        .select('status,language_code,narration_url,narration_duration_seconds,target_duration_seconds,reused_from_project_id')
+        .select('status,language_code,narration_url,narration_duration_seconds,target_duration_seconds,visual_style,reused_from_project_id')
         .eq('id', job.project_id).eq('owner_id', job.owner_id).single();
       if (error || !data) throw new Error('Could not load this lesson.');
       if (data.status === 'cancelled') throw new PreparationStopped('cancel');
       if (!['generating_images', 'generating_videos', 'assembling'].includes(data.status)
-          || data.target_duration_seconds !== 60 || !data.narration_url
-          || Math.abs(Number(data.narration_duration_seconds) - 60) > 0.25) throw new Error('Invalid active lesson.');
+          || ![30, 60].includes(data.target_duration_seconds) || !data.narration_url
+          || Math.abs(Number(data.narration_duration_seconds) - data.target_duration_seconds) > 0.25) throw new Error('Invalid active lesson.');
       const { data: rows, error: sceneError } = await client.from('cloud_lesson_scenes')
         .select('id,scene_index,duration_seconds,caption,overlay,motion_mode,status,image_url,video_url')
         .eq('project_id', job.project_id).order('scene_index');
       if (sceneError || !rows) throw new Error('Could not load lesson scenes.');
       // Video jobs may run before later keyframes exist. Only parse their own scene,
       // while checking the animation cap against all eight stored rows.
-      if (rows.length !== 8 || rows.filter(s => s.motion_mode === 'animate').length > 6) throw new Error('Invalid scene plan.');
+      if (rows.length !== data.target_duration_seconds / 7.5 || rows.filter(s => s.motion_mode === 'animate').length > 6) throw new Error('Invalid scene plan.');
       const relevant = job.kind === 'video' ? rows.filter(s => s.id === job.scene_id) : rows;
       const scenes = z.array(MediaSceneSchema).parse(relevant);
       if (job.parameters.reusedFromProjectId) {
@@ -78,7 +78,7 @@ export function createCloudMediaStore(): CloudMediaStore {
         || job.parameters.clipSeconds !== 5 || job.parameters.slotSeconds !== 7.5)) throw new Error('Invalid video claim.');
       if (job.kind === 'assemble' && (data.status !== 'assembling' || scenes.some((s, i) =>
         s.scene_index !== i + 1 || s.status !== 'succeeded' || !s.video_url))) throw new Error('Lesson is not ready to assemble.');
-      return { language: z.enum(['en-IN', 'hi-IN', 'kn-IN']).parse(data.language_code), narrationUrl: data.narration_url, scenes };
+      return { durationSeconds: z.union([z.literal(30), z.literal(60)]).parse(data.target_duration_seconds), visualStyle: z.enum(['illustrated', 'editorial']).parse(data.visual_style), language: z.enum(['en-IN', 'hi-IN', 'kn-IN']).parse(data.language_code), narrationUrl: data.narration_url, scenes };
     },
     async heartbeat(job, progress, providerId) {
       const { data, error } = await client.rpc('heartbeat_cloud_lesson_job', {
@@ -272,7 +272,7 @@ export async function runCloudMediaJob(options: RunMediaOptions) {
       }
       await checkpoint('compose-scene', 65);
       Object.assign(metadata, await options.renderer.render({ mode: 'scene', image, rawClip, output,
-        language: bundle.language, scene }, dir, controller.signal));
+        visualStyle: bundle.visualStyle ?? "editorial", durationSeconds: bundle.durationSeconds ?? 60, language: bundle.language, scene }, dir, controller.signal));
     } else {
       const clips: string[] = [];
       for (const scene of bundle.scenes) { const path = join(dir, `scene-${scene.scene_index}.mp4`);
@@ -280,7 +280,7 @@ export async function runCloudMediaJob(options: RunMediaOptions) {
       const narration = join(dir, 'narration.wav'); await download(bundle.narrationUrl, narration);
       await checkpoint('assemble-lesson', 65);
       Object.assign(metadata, await options.renderer.render({ mode: 'assemble', clips, narration, output,
-        language: bundle.language, scenes: bundle.scenes }, dir, controller.signal));
+        visualStyle: bundle.visualStyle ?? "editorial", durationSeconds: bundle.durationSeconds ?? 60, language: bundle.language, scenes: bundle.scenes }, dir, controller.signal));
     }
     await checkpoint('upload-media', 90);
     const url = await options.store.upload(job, output, job.kind === 'assemble' ? 'lesson' : 'scene');

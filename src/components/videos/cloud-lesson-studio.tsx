@@ -31,7 +31,7 @@ export function CloudLessonStudio({ initialProjects, initialId, setupError, anim
   const [busy, setBusy] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [offer, setOffer] = useState<{ exact: CloudLessonProject | null; reusable: CloudLessonProject | null; input: CreateCloudLessonInput } | null>(null);
-  const [input, setInput] = useState<CreateCloudLessonInput>({ classLevel: 6, subject: 'Science', languageCode: 'en-IN', topic: '' });
+  const [input, setInput] = useState<CreateCloudLessonInput>({ classLevel: 6, subject: 'Science', languageCode: 'en-IN', topic: '', durationSeconds: 60, visualStyle: 'illustrated' });
   const submitting = useRef(false);
 
   useEffect(() => {
@@ -76,7 +76,7 @@ export function CloudLessonStudio({ initialProjects, initialId, setupError, anim
     if (!parsed.success) { setError('Choose a class and subject, then enter a topic of 3 to 300 characters.'); return; }
     submitting.current = true; setBusy(true); setError(''); setOffer(null);
     try {
-      const query = new URLSearchParams({ classLevel: String(parsed.data.classLevel), subject: parsed.data.subject, topic: parsed.data.topic, languageCode: parsed.data.languageCode });
+      const query = new URLSearchParams({ classLevel: String(parsed.data.classLevel), subject: parsed.data.subject, topic: parsed.data.topic, languageCode: parsed.data.languageCode, durationSeconds: String(parsed.data.durationSeconds), visualStyle: parsed.data.visualStyle });
       const cached = await api(`/api/cloud-lessons/cache?${query}`);
       if (cached.exact || cached.reusable) {
         setOffer({ exact: cached.exact ? CloudLessonProjectSchema.parse(cached.exact) : null,
@@ -104,7 +104,7 @@ export function CloudLessonStudio({ initialProjects, initialId, setupError, anim
     <div className="space-y-5">
       <form onSubmit={submit} className="rounded-2xl border border-black/8 bg-neutral-50/70 p-5 dark:border-white/10 dark:bg-neutral-900/50">
         <h2 className="flex items-center gap-2 font-semibold"><Sparkles className="h-4 w-4 text-indigo-500" />Create a lesson</h2>
-        <p className="mt-1 text-sm text-neutral-500">One topic. Eight scenes. One minute.</p>
+        <p className="mt-1 text-sm text-neutral-500">One topic, clearly explained in your chosen style.</p>
         <div className="mt-5 grid grid-cols-2 gap-3">
           <label className="text-sm font-medium">Class<select className={field} value={input.classLevel} onChange={e => { setOffer(null); setInput({ ...input, classLevel: Number(e.target.value) }); }}>
             {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>Class {i + 1}</option>)}
@@ -115,8 +115,17 @@ export function CloudLessonStudio({ initialProjects, initialId, setupError, anim
         </div>
         <label className="mt-4 block text-sm font-medium">Subject<input required minLength={2} maxLength={100} className={field} value={input.subject} placeholder="Science, Mathematics, History…" onChange={e => { setOffer(null); setInput({ ...input, subject: e.target.value }); }} /></label>
         <label className="mt-4 block text-sm font-medium">Topic<textarea required minLength={3} maxLength={300} rows={3} className={`${field} resize-y`} value={input.topic} placeholder="How does the water cycle work?" onChange={e => { setOffer(null); setInput({ ...input, topic: e.target.value }); }} /></label>
-        <div className="mt-4 flex gap-2 text-xs text-neutral-500"><span className="rounded-md bg-black/5 px-2 py-1 dark:bg-white/10">60 seconds</span><span className="rounded-md bg-black/5 px-2 py-1 dark:bg-white/10">1080p</span><span className="rounded-md bg-black/5 px-2 py-1 dark:bg-white/10">Narrated</span></div>
-        <p className="mt-4 text-xs leading-relaxed text-neutral-500">Animation allowance: up to ${animationAllowance.toFixed(2)}, plus script, images and speech. Provider prices and retries affect the total. Existing matching lessons have no new generation charge.</p>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <label className="text-sm font-medium">Duration<select className={field} value={input.durationSeconds} onChange={e => { setOffer(null); setInput({ ...input, durationSeconds: Number(e.target.value) as 30 | 60 }); }}>
+            <option value={30}>30 seconds · 4 scenes</option><option value={60}>60 seconds · 8 scenes</option>
+          </select></label>
+          <label className="text-sm font-medium">Visual style<select className={field} value={input.visualStyle} onChange={e => { setOffer(null); setInput({ ...input, visualStyle: e.target.value as CreateCloudLessonInput['visualStyle'] }); }}>
+            <option value="illustrated">2D illustrated explainer</option><option value="editorial">Editorial photographs</option>
+          </select></label>
+        </div>
+        <p className="mt-3 text-xs text-neutral-500">{input.visualStyle === 'illustrated' ? 'Clean illustrations, bold outlines, animated teaching overlays and smooth reveals.' : 'Photographic scenes with a warm paper presentation.'}</p>
+        <div className="mt-4 flex gap-2 text-xs text-neutral-500"><span className="rounded-md bg-black/5 px-2 py-1 dark:bg-white/10">{input.durationSeconds} seconds</span><span className="rounded-md bg-black/5 px-2 py-1 dark:bg-white/10">1080p</span><span className="rounded-md bg-black/5 px-2 py-1 dark:bg-white/10">Narrated</span></div>
+        <p className="mt-4 text-xs leading-relaxed text-neutral-500">Animation allowance: up to ${(animationAllowance * (input.visualStyle === "illustrated" ? (input.durationSeconds === 30 ? 2 : 3) : (input.durationSeconds === 30 ? 4 : 6)) / 6).toFixed(2)}, plus script, images and speech. Provider prices and retries affect the total. Existing matching lessons have no new generation charge.</p>
         <button disabled={busy} className={`${button} mt-5 w-full`} type="submit">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Film className="h-4 w-4" />}Check and generate</button>
         <p className="mt-3 text-xs text-neutral-500">Up to 2 lessons at once · 10 new lessons per 24 hours</p>
       </form>
@@ -141,7 +150,7 @@ export function CloudLessonStudio({ initialProjects, initialId, setupError, anim
         <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-indigo-500/10"><Play className="h-8 w-8 text-indigo-500" /></div>
         <h2 className="mt-5 text-xl font-semibold">A small lesson. A clearer idea.</h2><p className="mt-2 max-w-sm text-sm leading-relaxed text-neutral-500">Choose a class, subject and topic to create a narrated lesson with images, motion and clear captions.</p>
       </div> : <>
-        <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-medium uppercase tracking-wider text-indigo-500">{project.subject} · Class {project.class_level}</p><h2 className="mt-2 text-xl font-semibold">{project.title ?? project.topic}</h2><p className="mt-2 text-sm text-neutral-500">{project.learning_objective ?? labels[project.status]}</p></div>
+        <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-medium uppercase tracking-wider text-indigo-500">{project.subject} · Class {project.class_level}</p><p className="mt-1 text-xs text-neutral-500">{project.target_duration_seconds} seconds · {project.visual_style === 'illustrated' ? '2D illustrated explainer' : 'Editorial photographs'}</p><h2 className="mt-2 text-xl font-semibold">{project.title ?? project.topic}</h2><p className="mt-2 text-sm text-neutral-500">{project.learning_objective ?? labels[project.status]}</p></div>
           {active(project) && <button type="button" disabled={cancelling} onClick={() => void cancel()} className="inline-flex items-center gap-1 rounded-lg border border-black/10 px-3 py-2 text-sm dark:border-white/15"><X className="h-4 w-4" />{cancelling ? 'Cancelling…' : 'Cancel'}</button>}
         </div>
         {project.status === 'succeeded' && project.final_video_url ? <div className="mt-6"><video key={project.final_video_url} src={project.final_video_url} controls playsInline preload="metadata" className="aspect-video w-full rounded-xl bg-black" aria-label={project.title ?? project.topic} />
@@ -153,7 +162,7 @@ export function CloudLessonStudio({ initialProjects, initialId, setupError, anim
         {active(project) && current && <div className="mt-6" aria-live="polite"><div className="mb-2 flex justify-between text-sm"><span>{labels[project.status]}</span><span>{current.progress}%</span></div><progress value={current.progress} max={100} aria-label="Lesson generation progress" className="h-2 w-full accent-indigo-600" /></div>}
         {current && <div className="mt-5 grid gap-2 sm:grid-cols-2">{current.stages.map(stage => <div key={stage.key} className="flex items-center gap-2 rounded-xl bg-black/3 p-3 text-sm dark:bg-white/5">{stage.completed ? <Check className="h-4 w-4 text-emerald-500" /> : <RefreshCw className="h-4 w-4 text-neutral-400" />}<span>{stage.label}</span><span className="ml-auto text-xs text-neutral-500">{stage.count}/{stage.total}</span></div>)}</div>}
         <p className="mt-5 text-xs text-neutral-500">Recorded cost {active(project) ? 'so far' : ''}: ${project.cost_usd.toFixed(4)} · Animation charges are estimates; provider invoices are authoritative.{project.reused_from_project_id ? ' Visuals reused from your existing lesson.' : ''}</p>
-        {current && current.scenes.length > 0 && <details className="mt-6"><summary className="cursor-pointer text-sm font-medium">Eight-scene lesson outline</summary><ol className="mt-3 space-y-3">{current.scenes.map(scene => <li key={scene.id} className="rounded-xl bg-black/3 p-3 text-sm dark:bg-white/5"><p className="font-medium">{scene.scene_index}. {scene.caption}</p><p className="mt-1 text-neutral-500">{scene.narration}</p></li>)}</ol></details>}
+        {current && current.scenes.length > 0 && <details className="mt-6"><summary className="cursor-pointer text-sm font-medium">{project.target_duration_seconds / 7.5}-scene lesson outline</summary><ol className="mt-3 space-y-3">{current.scenes.map(scene => <li key={scene.id} className="rounded-xl bg-black/3 p-3 text-sm dark:bg-white/5"><p className="font-medium">{scene.scene_index}. {scene.caption}</p><p className="mt-1 text-neutral-500">{scene.narration}</p></li>)}</ol></details>}
       </>}
     </section>
   </div>;

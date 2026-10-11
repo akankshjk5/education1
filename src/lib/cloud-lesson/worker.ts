@@ -44,12 +44,12 @@ export function createCloudPreparationStore(): CloudPreparationStore {
       // Both predicates matter: service role bypasses RLS, so an unrelated
       // project's content must never be read on a mismatched queue claim.
       const { data, error } = await client.from('cloud_lesson_projects')
-        .select('class_level,subject,topic,language_code,target_duration_seconds,status')
+        .select('class_level,subject,topic,language_code,target_duration_seconds,visual_style,status')
         .eq('id', job.project_id).eq('owner_id', job.owner_id).single();
       if (error || !data) throw new Error('Could not load this lesson request.');
       if (data.status === 'cancelled') throw new PreparationStopped('cancel');
-      if (data.status !== 'preparing' || data.target_duration_seconds !== 60) throw new Error('This request is not an active sixty-second lesson.');
-      return CreateCloudLessonSchema.parse({ classLevel: data.class_level, subject: data.subject, topic: data.topic, languageCode: data.language_code });
+      if (data.status !== 'preparing' || ![30, 60].includes(data.target_duration_seconds)) throw new Error('This request is not an active lesson.');
+      return CreateCloudLessonSchema.parse({ classLevel: data.class_level, subject: data.subject, topic: data.topic, languageCode: data.language_code, durationSeconds: data.target_duration_seconds, visualStyle: data.visual_style });
     },
     async sourcePlan(job) {
       const { data: project, error } = await client.from('cloud_lesson_projects')

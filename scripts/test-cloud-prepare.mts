@@ -15,7 +15,7 @@ const test = async (name: string, body: () => Promise<void>) => {
   passed += 1;
   console.log(`ok ${name}`);
 };
-const input = { classLevel: 6, subject: 'Science', topic: 'Water cycle', languageCode: 'en-IN' as const };
+const input = { classLevel: 6, subject: 'Science', topic: 'Water cycle', languageCode: 'en-IN' as const, visualStyle: 'editorial' as const };
 const NO_WAIT = { retryDelaysMs: [], maxRetryWaitMs: 0 };
 const noReference = async () => null;
 const words = ['evaporation', 'condensation', 'rainfall', 'collection', 'rivers', 'oceans', 'clouds', 'sunlight'];
@@ -90,6 +90,35 @@ await test('English lesson: eight ordered scenes, six animation cap, exact 60-se
   assert.equal(fixture.requests.filter((call) => call.stage === 'tts').length, 8);
   assert.ok(!fixture.requests.some((call) => call.stage === 'translator'));
   assert.equal(result.metadata.reference, null);
+});
+
+for (const languageCode of ['en-IN', 'hi-IN', 'kn-IN'] as const) {
+  await test(`30-second illustrated lesson: ${languageCode} has four scenes and matching captions`, async () => {
+    const fixture = fake((stage, request) => {
+      if (stage === 'writer') return textAnswer({ ...written(), scenes: written().scenes.slice(0, 4) });
+      if (stage === 'auditor') return textAnswer({ scenes: written().scenes.slice(0, 4).map(s => ({ ...s, verdict: 'correct' })) });
+      if (stage === 'director') return textAnswer({ ...directed(), scenes: directed().scenes.slice(0, 4) });
+      if (stage === 'translator') {
+        const items = JSON.parse(String(request.contents[0].parts[0].text)) as { id: string; kind: string }[];
+        return textAnswer({ translations: items.map(item => ({ id: item.id, text: languageCode === 'hi-IN'
+          ? (item.kind === 'narration' ? 'पानी प्रकृति में एक स्थान से दूसरे स्थान तक जाता है।' : 'पानी का चक्र')
+          : (item.kind === 'narration' ? 'ನೀರು ಪ್ರಕೃತಿಯಲ್ಲಿ ಒಂದು ಸ್ಥಳದಿಂದ ಇನ್ನೊಂದು ಸ್ಥಳಕ್ಕೆ ಚಲಿಸುತ್ತದೆ।' : 'ನೀರಿನ ಚಕ್ರ') })) });
+      }
+      return undefined;
+    });
+    const result = await prepare(fixture.transport, { input: { ...input, durationSeconds: 30, visualStyle: 'illustrated', languageCode } });
+    assert.equal(result.scenes.length, 4);
+    assert.equal(result.scenes.filter(s => s.motionMode === 'animate').length, 2);
+    assert.equal(wavDurationSeconds(result.narration.wav), 30);
+    assert.ok(result.scenes.every(s => s.caption.length > 0));
+    const reused = await prepare(fixture.transport, { input: { ...input, durationSeconds: 30, visualStyle: 'illustrated', languageCode }, sourcePlan: result.metadata.sourcePlan });
+    assert.equal(reused.narration.durationSeconds, 30);
+  });
+}
+
+await test('60-second illustrated presentation caps provider motion at three scenes', async () => {
+  const result = await prepare(fake().transport, { input: { ...input, visualStyle: 'illustrated' } });
+  assert.equal(result.scenes.filter(s => s.motionMode === 'animate').length, 3);
 });
 
 await test('Audited source reuse skips research, writing, auditing and visual direction', async () => {

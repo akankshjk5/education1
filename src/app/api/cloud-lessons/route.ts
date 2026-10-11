@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     const input = CreateCloudLessonSchema.parse(await request.json());
     const client = await createClient();
     const { data, error } = await client.rpc('reserve_cloud_lesson', { p_class_level: input.classLevel,
-      p_subject: input.subject, p_topic: input.topic, p_language_code: input.languageCode, p_target_duration_seconds: 60 });
+      p_subject: input.subject, p_topic: input.topic, p_language_code: input.languageCode, p_target_duration_seconds: input.durationSeconds, p_visual_style: input.visualStyle });
     if (error) throw error;
     const project = CloudLessonProjectSchema.parse(data?.[0]);
     return NextResponse.json({ project, cached: project.status === 'succeeded', reusedVisuals: !!project.reused_from_project_id },

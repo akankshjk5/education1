@@ -8,11 +8,11 @@ declare p public.cloud_lesson_projects; q public.cloud_lesson_projects;
  j public.cloud_lesson_jobs; s record; plan jsonb; ok boolean;
 begin
  if has_function_privilege('authenticated','private.reserve_cloud_lesson_uncached(smallint,text,text,text,smallint)','execute')
- or has_function_privilege('anon','public.reserve_cloud_lesson(smallint,text,text,text,smallint)','execute') then
+ or has_function_privilege('anon','public.reserve_cloud_lesson(smallint,text,text,text,smallint,text)','execute') then
   raise exception 'Private/public grants are incorrect';
  end if;
- select * into p from public.reserve_cloud_lesson(6::smallint,'Science','Water cycle','en-IN');
- select * into q from public.reserve_cloud_lesson(6::smallint,' science ','Water   cycle','en-IN');
+ select * into p from public.reserve_cloud_lesson(6::smallint,'Science','Water cycle','en-IN',60::smallint,'editorial');
+ select * into q from public.reserve_cloud_lesson(6::smallint,' science ','Water   cycle','en-IN',60::smallint,'editorial');
  if p.id<>q.id then raise exception 'Repeated active requests created duplicate jobs'; end if;
  if (select count(*) from public.cloud_lesson_jobs where project_id=p.id)<>1 then raise exception 'Duplicate prepare jobs'; end if;
  select jsonb_agg(jsonb_build_object('index',n,'fact','Water circulates through the environment.',
@@ -34,9 +34,9 @@ begin
    case when s.motion_mode='animate' then jsonb_build_object('rawVideoUrl','https://fixture.invalid/raw.mp4') else '{}'::jsonb end);
  end loop;
  update public.cloud_lesson_projects set status='succeeded',final_video_url='https://fixture.invalid/lesson.mp4',completed_at=now() where id=p.id;
- select * into q from public.reserve_cloud_lesson(6::smallint,'Science','Water cycle','en-IN');
+ select * into q from public.reserve_cloud_lesson(6::smallint,'Science','Water cycle','en-IN',60::smallint,'editorial');
  if q.id<>p.id then raise exception 'Exact cache missed completed lesson'; end if;
- select * into q from public.reserve_cloud_lesson(6::smallint,'Science','Water cycle','hi-IN');
+ select * into q from public.reserve_cloud_lesson(6::smallint,'Science','Water cycle','hi-IN',60::smallint,'editorial');
  if q.reused_from_project_id is distinct from p.id then raise exception 'Language variant did not reserve visual reuse'; end if;
  update public.cloud_lesson_jobs set status='processing',worker_id='fixture-worker',attempts=1 where project_id=q.id and kind='prepare' returning * into j;
  ok:=public.complete_cloud_lesson_preparation(j.id,'fixture-worker','Water cycle','Understand how water moves through the environment.',
@@ -50,7 +50,7 @@ begin
  perform public.cancel_cloud_lesson(q.id);
  if exists(select 1 from public.cloud_lesson_jobs where project_id=q.id and status='queued') then raise exception 'Cancellation left queued work'; end if;
  perform set_config('request.jwt.claims','{"sub":"user_cloud_step7_other"}',true);
- select * into q from public.reserve_cloud_lesson(6::smallint,'Science','Water cycle','en-IN');
+ select * into q from public.reserve_cloud_lesson(6::smallint,'Science','Water cycle','en-IN',60::smallint,'editorial');
  if q.id=p.id or q.reused_from_project_id is not null then raise exception 'Cache crossed owner boundary'; end if;
 end; $$;
 set local role authenticated;

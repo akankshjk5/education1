@@ -45,6 +45,13 @@ class OverlayTests(unittest.TestCase):
     def test_scene_boundaries_exact(self):
         self.assertEqual(FRAMES / FPS, 7.5)
         self.assertEqual(FRAMES * 8 / FPS, 60)
+        self.assertEqual(FRAMES * 4 / FPS, 30)
+
+    def test_assembly_rejects_duration_and_scene_mismatch(self):
+        for seconds, count in [(45, 6), (30, 8), (60, 4)]:
+            with self.assertRaises(ValueError):
+                assemble({"durationSeconds": seconds, "clips": ["unused"] * count,
+                          "scenes": [{"scene_index": i + 1} for i in range(count)]})
 
     def test_missing_fonts_fail_clearly(self):
         with tempfile.TemporaryDirectory() as root:
@@ -78,7 +85,7 @@ def integration(config: dict, output_root: Path):
     scene = {"scene_index": 1, "duration_seconds": 7.5, "motion_mode": "still",
              "caption": "Water evaporates", "overlay": {"kind": "arrow", "direction": "up"}}
     still = output_root / "still.mp4"
-    result = render_scene({**config, "scene": scene, "image": str(image), "output": str(still)})
+    result = render_scene({**config, "visualStyle": "illustrated", "scene": scene, "image": str(image), "output": str(still)})
     assert result["width"] == 1920 and abs(result["durationSeconds"] - 7.5) < .01
     raw = output_root / "raw.mp4"
     command([config["ffmpeg"], "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=24",
@@ -94,10 +101,18 @@ def integration(config: dict, output_root: Path):
                          "scenes": [{**scene, "scene_index": i + 1} for i in range(8)],
                          "narration": str(narration), "output": str(final)})
     assert metadata["hasAudio"] and abs(metadata["durationSeconds"] - 60) < .01
+    short_audio = output_root / "narration-30.wav"
+    command([config["ffmpeg"], "-y", "-v", "error", "-i", str(narration), "-t", "30", str(short_audio)])
+    short = output_root / "lesson-30.mp4"
+    short_metadata = assemble({**config, "durationSeconds": 30, "clips": [str(still)] * 4,
+                              "scenes": [{**scene, "scene_index": i + 1} for i in range(4)],
+                              "narration": str(short_audio), "output": str(short)})
+    assert short_metadata["hasAudio"] and abs(short_metadata["durationSeconds"] - 30) < .01
+    assert short_metadata["sceneCount"] == 4
     command([config["ffmpeg"], "-y", "-v", "error", "-ss", "3", "-i", str(final),
              "-frames:v", "1", str(output_root / "preview.png")])
     (output_root / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
-    print(f"PASS real scene encode, animation hold, 8-scene assembly, 60s audio: {final}", flush=True)
+    print(f"PASS illustrated scene encode, animation hold, 30s and 60s assembly with audio: {short}, {final}", flush=True)
 
 
 if __name__ == "__main__":
