@@ -38,6 +38,9 @@ export const CLOUD_LESSON_SKILLS = [
   'cloud-lesson-translator',
   'cloud-lesson-narration-editor',
   'cloud-lesson-keyframe-checker',
+  // Storybook style only (pen-and-ink engraving, 2-3 shots per scene).
+  'cloud-lesson-storybook-director',
+  'cloud-lesson-storybook-checker',
 ] as const;
 export type CloudLessonSkillName = (typeof CLOUD_LESSON_SKILLS)[number];
 

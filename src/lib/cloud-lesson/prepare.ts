@@ -3,9 +3,9 @@ import 'server-only';
 import { z } from 'zod';
 
 import {
-  CLOUD_LESSON_SCENE_COUNT, CLOUD_LESSON_SCENE_SECONDS, cloudLessonSceneCount,
-  CloudLessonPreparedScenesSchema, CreateCloudLessonSchema,
-  type CloudLessonPreparedScene, type CreateCloudLessonInput,
+  CLOUD_LESSON_SCENE_COUNT, CLOUD_LESSON_SCENE_SECONDS, CLOUD_LESSON_STORYBOOK_SHOTS, cloudLessonSceneCount,
+  cloudLessonStorybookAnimationCap, CloudLessonPreparedScenesSchema, PrepareCloudLessonInputSchema,
+  type CloudLessonPreparedScene, type PrepareCloudLessonInput,
 } from '@/lib/videos/cloud-lesson-contracts';
 import {
   captionUsesSelectedLanguage, narrationUsesSelectedLanguage,
@@ -20,6 +20,10 @@ import { generateStructured, type CallOptions } from './gemini';
 import { assembleNarration, voiceLesson, type AssembledNarration, type SceneVoice } from './narration';
 import { CostMeter } from './pricing';
 import { loadCloudLessonSkill, type CloudLessonSkillName, type PromptValues } from './skills';
+import {
+  CloudLessonStorybookSceneSchema, mergeStorybookScenes, StorybookShotSchema,
+  storybookDirectionSchema, type CloudLessonStorybookScene,
+} from './storybook';
 
 const IndexSchema = z.number().int().min(1).max(CLOUD_LESSON_SCENE_COUNT);
 const SPOKEN_SYMBOLS = /[\p{N}=+*/^<>%×÷]/u;
@@ -77,7 +81,7 @@ function subjectWords(text: string): Set<string> {
     .filter((word) => !STOP_WORDS.has(word)).map((word) => word.replace(/(?:ing|es|s)$/, '')));
 }
 
-function directorSchema(scenes: WrittenScene[], input: CreateCloudLessonInput) {
+function directorSchema(scenes: WrittenScene[], input: PrepareCloudLessonInput) {
   return z.object({
     visualBible: EnglishSchema.min(20).max(500),
     scenes: z.array(DirectionSchema).length(scenes.length),
@@ -108,9 +112,17 @@ function directorSchema(scenes: WrittenScene[], input: CreateCloudLessonInput) {
   });
 }
 
+/** A storybook source plan also keeps each scene's English chapter title and shots, so a reuse can rebuild them. */
+const SourceStorybookSceneSchema = z.object({
+  index: IndexSchema,
+  title: EnglishSchema.min(2).max(60),
+  shots: z.array(StorybookShotSchema).min(CLOUD_LESSON_STORYBOOK_SHOTS.min).max(CLOUD_LESSON_STORYBOOK_SHOTS.max),
+});
+
 export const CloudLessonSourcePlanSchema = z.object({
   title: EnglishSchema.min(3).max(200), learningObjective: EnglishSchema.min(10).max(500),
   scenes: CloudLessonPreparedScenesSchema, visualBible: EnglishSchema.min(20).max(500),
+  storybook: z.array(SourceStorybookSceneSchema).optional(),
 }).superRefine((plan, ctx) => {
   plan.scenes.forEach((scene, index) => {
     const result = WrittenSceneSchema.safeParse(scene);
@@ -120,7 +132,7 @@ export const CloudLessonSourcePlanSchema = z.object({
 export type CloudLessonSourcePlan = z.infer<typeof CloudLessonSourcePlanSchema>;
 
 export interface PrepareCloudLessonOptions extends Omit<CallOptions, 'stage'> {
-  input: CreateCloudLessonInput;
+  input: PrepareCloudLessonInput;
   sourcePlan?: CloudLessonSourcePlan;
   /** Injectable so offline tests never fetch Wikipedia. */
   referenceLookup?: (topic: string, subject: string) => Promise<TopicReference | null>;
@@ -142,14 +154,18 @@ export interface PreparedCloudLesson {
     visualBible: string;
     warnings: string[];
     narration: { durationSeconds: number; scenes: AssembledNarration['scenes'] };
+    /** Storybook lessons only. */
+    storybook?: { shotCount: number; demotedToStill: number[] };
   };
 }
 
 /** Eight scenes and voice-over only. Images/videos are queued by the completion RPC. */
 export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Promise<PreparedCloudLesson> {
-  const input = CreateCloudLessonSchema.parse(options.input);
+  const input = PrepareCloudLessonInputSchema.parse(options.input);
   const sceneCount = cloudLessonSceneCount(input.durationSeconds);
-  const animationCap = input.visualStyle === "illustrated" ? (sceneCount === 4 ? 2 : 3) : Math.min(6, sceneCount);
+  const storybook = input.visualStyle === 'storybook';
+  const animationCap = storybook ? cloudLessonStorybookAnimationCap(sceneCount)
+    : input.visualStyle === "illustrated" ? (sceneCount === 4 ? 2 : 3) : Math.min(6, sceneCount);
   const meter = options.meter ?? new CostMeter();
   const warnings: string[] = [];
   const languageName = videoLanguage(input.languageCode).promptName;
@@ -157,7 +173,9 @@ export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Pr
     classLevel: input.classLevel, subject: input.subject, topic: input.topic,
     languageName, sceneCount, sceneSeconds: 7.5, durationSeconds: input.durationSeconds,
     visualStyle: input.visualStyle, animationCap,
+    shotsPerScene: CLOUD_LESSON_STORYBOOK_SHOTS.max,
   };
+  const voiceStyle = storybook ? 'storyteller' as const : 'teacher' as const;
   const checkpoint = async (stage: string, progress: number) => { await options.checkpoint?.(stage, progress); };
   const request = async <T>(name: CloudLessonSkillName, schema: z.ZodType<T>, userPrompt: string, extra: PromptValues = {}) => {
     const skill = await loadCloudLessonSkill(name);
@@ -168,14 +186,19 @@ export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Pr
   let written: { title: string; learningObjective: string };
   let scenes: WrittenScene[];
   let prepared: CloudLessonPreparedScene[];
+  // Storybook only: each scene's English chapter title and shots, by index.
+  let chapters: { index: number; title: string; shots: CloudLessonStorybookScene['shots'] }[] | undefined;
+  let demotedToStill: number[] = [];
   let visualBible: string;
   if (options.sourcePlan) {
     const source = CloudLessonSourcePlanSchema.parse(options.sourcePlan);
     if (source.scenes.length !== sceneCount) throw new Error("Source plan duration does not match the lesson.");
+    if (storybook && source.storybook?.length !== sceneCount) throw new Error('Source plan has no storybook shots to reuse.');
     await checkpoint('reuse-audited-plan', 48);
     written = source;
     scenes = source.scenes.map(scene => WrittenSceneSchema.parse(scene));
     prepared = structuredClone(source.scenes);
+    chapters = storybook ? structuredClone(source.storybook) : undefined;
     visualBible = source.visualBible;
   } else {
     await checkpoint('reference', 5);
@@ -236,6 +259,22 @@ export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Pr
         ? { kind: 'none' } as const : audited.overlay };
     }));
 
+    if (storybook) {
+      // Storybook: 2-3 shots and a chapter title per scene, from its own director.
+      await checkpoint('storybook-director', 48);
+      const direction = await request('cloud-lesson-storybook-director', storybookDirectionSchema(sceneCount),
+        `Topic: ${input.topic}\nLesson title: ${written.title}\nAudited scenes: ${JSON.stringify(scenes.map((scene) => ({
+          index: scene.index, fact: scene.fact, narration: scene.narration, overlay: scene.overlay.kind })))}`);
+      const merged = mergeStorybookScenes(scenes, direction);
+      demotedToStill = merged.demotedToStill;
+      if (demotedToStill.length) warnings.push(`Animation count capped at ${animationCap}; scenes ${demotedToStill.join(', ')} use local motion.`);
+      visualBible = direction.visualBible;
+      prepared = merged.scenes.map((scene) => ({
+        index: scene.index, fact: scene.fact, narration: scene.narration, caption: scene.caption, overlay: scene.overlay,
+        visualDescription: scene.visualDescription, motionDescription: scene.motionDescription, motionMode: scene.motionMode,
+      }));
+      chapters = merged.scenes.map((scene) => ({ index: scene.index, title: scene.title, shots: scene.shots }));
+    } else {
     await checkpoint('scene-director', 48);
     const directed = await request('cloud-lesson-scene-director', directorSchema(scenes, input),
       `Topic: ${input.topic}\nAudited scenes: ${JSON.stringify(scenes)}`);
@@ -247,10 +286,12 @@ export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Pr
       return { ...scene, visualDescription: direction.visualDescription, motionDescription: direction.motionDescription, motionMode };
     });
     if (animateCount > animationCap) warnings.push(`Animation count capped at ${animationCap}; remaining scenes use local motion.`);
+    }
 
   }
   const sourcePlan = CloudLessonSourcePlanSchema.parse({ title: written.title,
-    learningObjective: written.learningObjective, scenes: structuredClone(prepared), visualBible });
+    learningObjective: written.learningObjective, scenes: structuredClone(prepared), visualBible,
+    ...(chapters ? { storybook: structuredClone(chapters) } : {}) });
 
   type TranslationItem = { id: string; kind: 'title' | 'narration' | 'caption'; text: string };
   const translate = async (items: TranslationItem[]) => {
@@ -265,21 +306,26 @@ export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Pr
         if (item.kind === 'narration' && !singleSentence(translated.text)) ctx.addIssue({ code: 'custom', path: ['translations', position, 'text'], message: 'Keep narration to one spoken sentence' });
         if (item.kind === 'title' && (translated.text.length < 3 || translated.text.length > 200)) ctx.addIssue({ code: 'custom', path: ['translations', position, 'text'], message: 'Title must be 3-200 characters' });
         if (item.kind === 'caption' && (translated.text.split(/\s+/).length > 5 || translated.text.length > 120)) ctx.addIssue({ code: 'custom', path: ['translations', position, 'text'], message: 'Caption must be at most 5 words and 120 characters' });
+        if (item.id.startsWith('chapter-') && translated.text.length > 60) ctx.addIssue({ code: 'custom', path: ['translations', position, 'text'], message: 'Chapter title must be at most 60 characters' });
       }));
     const result = await request('cloud-lesson-translator', schema, JSON.stringify(items));
     return result.translations.map((item) => item.text);
   };
 
   await checkpoint('translator', 58);
+  // Chapter titles are short on-screen headlines, so they are translated (and
+  // checked) exactly like captions.
   const items: TranslationItem[] = [{ id: 'title', kind: 'title', text: written.title },
     ...scenes.map((scene) => ({ id: `narration-${scene.index}`, kind: 'narration' as const, text: scene.narration })),
-    ...scenes.map((scene) => ({ id: `caption-${scene.index}`, kind: 'caption' as const, text: scene.caption }))];
+    ...scenes.map((scene) => ({ id: `caption-${scene.index}`, kind: 'caption' as const, text: scene.caption })),
+    ...(chapters ?? []).map((chapter) => ({ id: `chapter-${chapter.index}`, kind: 'caption' as const, text: chapter.title }))];
   const translated = await translate(items);
   const title = translated[0];
   prepared.forEach((scene, index) => { scene.narration = translated[index + 1]; scene.caption = translated[index + 1 + sceneCount]; });
+  const chapterTitles = (chapters ?? []).map((_chapter, index) => translated[1 + 2 * sceneCount + index]);
 
   await checkpoint('narration', 68);
-  let voices = await voiceLesson({ ...options, meter, sentences: prepared.map((scene) => scene.narration), languageCode: input.languageCode, slotSeconds: CLOUD_LESSON_SCENE_SECONDS });
+  let voices = await voiceLesson({ ...options, meter, voiceStyle, sentences: prepared.map((scene) => scene.narration), languageCode: input.languageCode, slotSeconds: CLOUD_LESSON_SCENE_SECONDS });
   for (let round = 0; round < 2 && voices.some((voice) => voice.overran); round += 1) {
     await checkpoint('narration-editor', 76 + round * 6);
     const overran = voices.filter((voice) => voice.overran);
@@ -293,17 +339,24 @@ export async function prepareCloudLesson(options: PrepareCloudLessonOptions): Pr
     const revisions = await translate(revised.scenes.map((scene) => ({ id: `narration-${scene.index}`, kind: 'narration', text: scene.narration })));
     revised.scenes.forEach((scene, index) => { prepared[scene.index - 1].narration = revisions[index]; });
     const reuse = new Map<number, SceneVoice>(voices.filter((voice) => !voice.overran).map((voice) => [voice.index, voice]));
-    voices = await voiceLesson({ ...options, meter, reuse, sentences: prepared.map((scene) => scene.narration), languageCode: input.languageCode, slotSeconds: CLOUD_LESSON_SCENE_SECONDS });
+    voices = await voiceLesson({ ...options, meter, voiceStyle, reuse, sentences: prepared.map((scene) => scene.narration), languageCode: input.languageCode, slotSeconds: CLOUD_LESSON_SCENE_SECONDS });
   }
   await checkpoint('narration-ready', 92);
   const narration = assembleNarration(voices, CLOUD_LESSON_SCENE_SECONDS);
   if (Math.abs(narration.durationSeconds - input.durationSeconds) > 0.001) throw new Error('Narration did not match the selected timeline.');
-  const validatedScenes = CloudLessonPreparedScenesSchema.parse(prepared);
+  let validatedScenes: CloudLessonPreparedScene[] = CloudLessonPreparedScenesSchema.parse(prepared);
   if (validatedScenes.length !== sceneCount) throw new Error("Scene count does not match the selected duration.");
+  if (chapters) {
+    // The database needs each storybook scene's title and shots beside the usual fields.
+    validatedScenes = validatedScenes.map((scene, index) => CloudLessonStorybookSceneSchema.parse({
+      ...scene, title: chapterTitles[index], shots: chapters![index].shots,
+    }));
+  }
   return {
     title, learningObjective: written.learningObjective, scenes: validatedScenes,
     narrationText: validatedScenes.map((scene) => scene.narration).join(' '), narration, costUsd: meter.totalUsd,
     metadata: { cost: meter.summary(), reference: reference ? { title: reference.title } : null,
-      visualBible, sourcePlan, warnings, narration: { durationSeconds: narration.durationSeconds, scenes: narration.scenes } },
+      visualBible, sourcePlan, warnings, narration: { durationSeconds: narration.durationSeconds, scenes: narration.scenes },
+      ...(chapters ? { storybook: { shotCount: chapters.reduce((total, chapter) => total + chapter.shots.length, 0), demotedToStill } } : {}) },
   };
 }

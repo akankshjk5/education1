@@ -3,7 +3,7 @@ import { hostname } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { serverEnv } from '../src/lib/env.ts';
 import { createHiggsfieldProvider } from '../src/lib/cloud-lesson/higgsfield.ts';
-import { createCloudMediaStore, createCloudMediaRenderer, runCloudMediaJob } from '../src/lib/cloud-lesson/media-worker.ts';
+import { createCloudMediaStore, createCloudMediaRenderer, pickLessonMusic, runCloudMediaJob } from '../src/lib/cloud-lesson/media-worker.ts';
 
 const args = process.argv.slice(2);
 if (args.includes('--help')) {
@@ -12,6 +12,11 @@ if (args.includes('--help')) {
   for (const arg of args) if (!['--once', '--assemble-only', '--preflight'].includes(arg)) throw new Error(`Unsupported argument: ${arg}`);
   const renderer = createCloudMediaRenderer();
   await renderer.preflight(); // Dependencies and all language fonts checked before claiming work.
+  if (serverEnv.cloudLessonMusicDir) {
+    // Throws now, before any claim, when the folder is wrong; storybook lessons only.
+    const track = await pickLessonMusic(serverEnv.cloudLessonMusicDir, 'preflight');
+    console.log(track ? 'Storybook music folder is ready.' : 'CLOUD_LESSON_MUSIC_DIR has no .wav or .m4a tracks; storybook lessons will have no music.');
+  }
   if (args.includes('--preflight')) {
     console.log('Cloud compositor dependencies and fonts are ready. No API calls made.');
   } else {

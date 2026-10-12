@@ -31,6 +31,7 @@ const values = {
   languageName: 'Kannada',
   direction: 'too long',
   targetWords: 11,
+  shotsPerScene: 2,
 };
 
 // 1. Every skill loads and renders cleanly.
@@ -91,5 +92,16 @@ assert.equal(parseCloudLessonSkill('cloud-lesson-translator', legacy).thinkingBu
 const deckSkills = await listSkills();
 assert.ok(deckSkills.every((skill) => !skill.name.startsWith('cloud-lesson')), 'deck loader saw a cloud skill');
 console.log(`deck skills unchanged: ${deckSkills.length} (${deckSkills.map((s) => s.name).join(', ')})`);
+
+// 6. The storybook skills are separate files, so the existing styles' prompts are unchanged.
+const storybookDirector = skills.find((skill) => skill.name === 'cloud-lesson-storybook-director')!;
+const storybookPrompt = renderCloudLessonPrompt(storybookDirector, values);
+assert.match(storybookPrompt, /exactly 2 \*\*shots\*\*/, 'storybook director names the shot count');
+assert.match(storybookPrompt, /at most 3 of the\s+8\s+scenes `animate`/, 'storybook director states the animation cap');
+assert.ok(storybookDirector.placeholders.includes('animationCap') && storybookDirector.placeholders.includes('shotsPerScene'));
+const sceneDirector = skills.find((skill) => skill.name === 'cloud-lesson-scene-director')!;
+assert.ok(!/shots|storybook|engraving/i.test(sceneDirector.template), 'the existing scene director must not mention storybook');
+const storybookChecker = skills.find((skill) => skill.name === 'cloud-lesson-storybook-checker')!;
+assert.match(storybookChecker.template, /matchesStyle/);
 
 console.log('cloud lesson skills: all checks passed');

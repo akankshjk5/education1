@@ -11,7 +11,7 @@ import {
   toWav,
   trimSilence,
 } from './audio';
-import { type CallOptions, geminiTransport, generateSpeech, type GeminiTransport, type SpeechPace } from './gemini';
+import { type CallOptions, geminiTransport, generateSpeech, type GeminiTransport, type SpeechPace, type VoiceStyle } from './gemini';
 import type { CostMeter } from './pricing';
 
 /**
@@ -52,6 +52,8 @@ export interface VoiceSceneOptions extends Omit<CallOptions, 'stage'> {
   languageCode: LessonLanguage;
   slotSeconds: number;
   meter?: CostMeter;
+  /** Default `teacher`; the storybook style uses `storyteller`. */
+  voiceStyle?: VoiceStyle;
 }
 
 async function take(options: VoiceSceneOptions, pace: SpeechPace): Promise<Pcm> {
@@ -104,6 +106,8 @@ export interface VoiceLessonOptions extends Omit<CallOptions, 'stage'> {
   concurrency?: number;
   /** Re-use earlier voices for these indexes (1-based) instead of calling Gemini again. */
   reuse?: Map<number, SceneVoice>;
+  /** Default `teacher`; the storybook style uses `storyteller`. */
+  voiceStyle?: VoiceStyle;
 }
 
 /** Voices every scene, in parallel, reusing any voices already fitted. */

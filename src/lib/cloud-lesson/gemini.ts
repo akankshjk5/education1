@@ -388,8 +388,21 @@ const ACCENT: Record<string, string> = {
 };
 
 /** The style instruction for one pace and language. Exported for tests. */
-export function speechStyle(pace: SpeechPace, languageCode: string): string {
-  return `${PACE_STYLE[pace]}${ACCENT[languageCode] ?? ''}`;
+/**
+ * Who is speaking. `teacher` is every existing style's voice; `storyteller`
+ * is the storybook style's — the same voice and pace limits, delivered as a
+ * tale rather than an explanation.
+ */
+export type VoiceStyle = 'teacher' | 'storyteller';
+
+const STORYTELLER_STYLE: Record<SpeechPace, string> = {
+  natural: 'An engaging storyteller telling a true tale to a class; expressive and warm, with gentle emphasis on the key moment; clear, measured pace',
+  brisk: 'An engaging storyteller; lively and expressive but clear and well paced; no long pauses',
+};
+
+export function speechStyle(pace: SpeechPace, languageCode: string, voiceStyle: VoiceStyle = 'teacher'): string {
+  const base = voiceStyle === 'storyteller' ? STORYTELLER_STYLE[pace] : PACE_STYLE[pace];
+  return `${base}${ACCENT[languageCode] ?? ''}`;
 }
 
 export interface SpeechOptions extends Omit<CallOptions, 'stage'> {
@@ -398,6 +411,8 @@ export interface SpeechOptions extends Omit<CallOptions, 'stage'> {
   pace: SpeechPace;
   model?: string;
   voice?: string;
+  /** Default `teacher`. */
+  voiceStyle?: VoiceStyle;
 }
 
 export interface SpeechResult {
@@ -460,7 +475,7 @@ export async function generateSpeech(options: SpeechOptions): Promise<SpeechResu
   let response: GeminiResponse;
   try {
     response = await call(
-      request({ text, speechMetadata: { style: speechStyle(options.pace, options.languageCode) } }),
+      request({ text, speechMetadata: { style: speechStyle(options.pace, options.languageCode, options.voiceStyle) } }),
       { ...options, stage: 'tts' },
     );
   } catch (error) {
@@ -491,6 +506,8 @@ export interface ImageOptions extends Omit<CallOptions, 'stage'> {
   imageSize?: '1K' | '2K' | '4K';
   /** Earlier keyframe of the same lesson, passed so the style stays consistent. */
   styleReference?: { mimeType: string; data: Buffer };
+  /** What to take from the reference. Defaults to the photographic wording the existing styles use. */
+  referenceInstruction?: string;
 }
 
 export async function generateImage(options: ImageOptions): Promise<{ mimeType: string; data: Buffer }> {
@@ -498,7 +515,7 @@ export async function generateImage(options: ImageOptions): Promise<{ mimeType: 
   if (options.styleReference) {
     parts.push(
       { inlineData: { mimeType: options.styleReference.mimeType, data: options.styleReference.data.toString('base64') } },
-      { text: 'Match the photographic style, colour palette and lighting of the reference photograph above, but show a new subject:' },
+      { text: options.referenceInstruction ?? 'Match the photographic style, colour palette and lighting of the reference photograph above, but show a new subject:' },
     );
   }
   parts.push({ text: options.prompt });

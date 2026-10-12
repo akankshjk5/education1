@@ -31,7 +31,10 @@
     "test:cloud-image": "tsx --require ./scripts/allow-server-only.cjs scripts/test-cloud-image.mts",
     "worker:cloud-media": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/cloud-media-worker.mts",
     "test:cloud-media": "tsx --require ./scripts/allow-server-only.cjs scripts/test-cloud-media.mts",
-    "test:cloud-ui": "tsx --require ./scripts/allow-server-only.cjs scripts/test-cloud-ui.mts"
+    "test:cloud-ui": "tsx --require ./scripts/allow-server-only.cjs scripts/test-cloud-ui.mts",
+    "test:cloud-storybook": "tsx --require ./scripts/allow-server-only.cjs scripts/test-cloud-storybook.mts",
+    "smoke:cloud-storybook": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/smoke-cloud-storybook.mts",
+    "report:cloud-lesson": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/report-cloud-lesson.mts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.8.2",

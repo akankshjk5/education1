@@ -33,7 +33,8 @@ $$;
 set role authenticated;
 select pg_temp.as_user('user_teacher_a');
 
-select (r).id as lesson_a from (select public.reserve_cloud_lesson(7::smallint, 'Science', '  How   Plants Make Food ', 'kn-IN', 60::smallint) r) s \gset
+-- Editorial: the original look this test was written for (up to 6 animated scenes; illustrated allows 3).
+select (r).id as lesson_a from (select public.reserve_cloud_lesson(7::smallint, 'Science', '  How   Plants Make Food ', 'kn-IN', 60::smallint, 'editorial') r) s \gset
 select pg_temp.expect(
   (select status = 'preparing' and title is null and cache_key = '7|science|how plants make food|60|kn-IN'
           and content_key = '7|science|how plants make food|60'

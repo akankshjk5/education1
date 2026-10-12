@@ -30,8 +30,57 @@ export const CLOUD_LESSON_LANGUAGES = VIDEO_LANGUAGES.filter(
 export const CLOUD_LESSON_DURATION_SECONDS = 60;
 export const CLOUD_LESSON_SCENE_COUNT = 8;
 export const CLOUD_LESSON_SCENE_SECONDS = CLOUD_LESSON_DURATION_SECONDS / CLOUD_LESSON_SCENE_COUNT;
-export const CLOUD_LESSON_VISUAL_STYLES = ['illustrated', 'editorial'] as const;
+/** Styles a teacher may choose. `storybook` joined once its prep, image and media workers shipped (S1-S6). */
+export const CLOUD_LESSON_VISUAL_STYLES = ['illustrated', 'editorial', 'storybook'] as const;
+/**
+ * Every style the database accepts. Kept as its own list so a style can be
+ * stored (and its rows parsed) before it is offered, as storybook was.
+ */
+export const CLOUD_LESSON_STORED_VISUAL_STYLES = ['illustrated', 'editorial', 'storybook'] as const;
+export type CloudLessonStoredVisualStyle = (typeof CLOUD_LESSON_STORED_VISUAL_STYLES)[number];
+
+/**
+ * Storybook: shots per scene, the shot sizes and camera moves a shot may use,
+ * and its animation cap. Exactly 2 shots per scene keeps the picture bill
+ * predictable (the database still accepts 3, for lessons planned before).
+ */
+export const CLOUD_LESSON_STORYBOOK_SHOTS = { min: 2, max: 2 } as const;
+export const CLOUD_LESSON_SHOT_SIZES = ['wide', 'medium', 'close', 'detail'] as const;
+export const CLOUD_LESSON_CAMERA_MOVES = ['push_in', 'pull_out', 'pan_left', 'pan_right', 'tilt_up', 'tilt_down'] as const;
+/** Mirrors private.cloud_lesson_storybook_animation_cap: 2 of 8 scenes, 1 of 4. */
+export const cloudLessonStorybookAnimationCap = (sceneCount: number) => (sceneCount <= 4 ? 1 : 2);
 export const cloudLessonSceneCount = (durationSeconds = 60) => durationSeconds / CLOUD_LESSON_SCENE_SECONDS;
+
+/** What a teacher reads about each style, in the form and on a lesson. */
+export const CLOUD_LESSON_STYLE_COPY: Record<CloudLessonStoredVisualStyle, { label: string; description: string }> = {
+  illustrated: { label: '2D illustrated explainer', description: 'Clean illustrations, bold outlines, animated teaching overlays and smooth reveals.' },
+  editorial: { label: 'Editorial photographs', description: 'Photographic scenes with a warm paper presentation.' },
+  storybook: { label: 'Storybook', description: 'Pen-and-ink engravings, two pictures a scene, chapter titles and a storyteller voice.' },
+};
+
+/** Most scenes a lesson may animate, mirroring the database caps for each style. */
+export function cloudLessonAnimationCap(style: CloudLessonStoredVisualStyle, durationSeconds: 30 | 60): number {
+  if (style === 'storybook') return cloudLessonStorybookAnimationCap(cloudLessonSceneCount(durationSeconds));
+  if (style === 'illustrated') return durationSeconds === 30 ? 2 : 3;
+  return durationSeconds === 30 ? 4 : 6;
+}
+
+/** Pictures a lesson draws: one per scene, or one per storybook shot. */
+export const cloudLessonPictureCount = (style: CloudLessonStoredVisualStyle | undefined, durationSeconds: number) =>
+  cloudLessonSceneCount(durationSeconds) * (style === 'storybook' ? CLOUD_LESSON_STORYBOOK_SHOTS.max : 1);
+
+/**
+ * Measured storybook costs (live smoke, October 2026): the plan, the voice per
+ * 30 seconds, and one 2K picture with its check. Re-measure with
+ * `npm run smoke:cloud-storybook` when the models change.
+ */
+export const CLOUD_LESSON_STORYBOOK_COSTS = { planUsd: 0.035, voiceUsdPer30s: 0.006, pictureUsd: 0.061 } as const;
+/** A storybook lesson's expected bill before retries, given the Higgsfield rate per second. */
+export function cloudLessonStorybookEstimateUsd(durationSeconds: 30 | 60, usdPerAnimationSecond: number): number {
+  const { planUsd, voiceUsdPer30s, pictureUsd } = CLOUD_LESSON_STORYBOOK_COSTS;
+  return planUsd + voiceUsdPer30s * (durationSeconds / 30) + pictureUsd * cloudLessonPictureCount('storybook', durationSeconds)
+    + cloudLessonAnimationCap('storybook', durationSeconds) * 5 * usdPerAnimationSecond;
+}
 
 /**
  * Per-teacher limits. The CONTROL is `reserve_cloud_lesson` in Postgres, which
@@ -66,6 +115,18 @@ export const CreateCloudLessonSchema = z.object({
 });
 export type CreateCloudLessonInput = Omit<z.infer<typeof CreateCloudLessonSchema>, 'durationSeconds' | 'visualStyle'> & {
   durationSeconds?: 30 | 60; visualStyle?: (typeof CLOUD_LESSON_VISUAL_STYLES)[number];
+};
+
+/**
+ * What a prep worker reads back from a stored lesson: the request, with every
+ * style the database accepts. The API and the teacher's form use
+ * CreateCloudLessonSchema, so a style is only offered once its workers exist.
+ */
+export const PrepareCloudLessonInputSchema = CreateCloudLessonSchema.extend({
+  visualStyle: z.enum(CLOUD_LESSON_STORED_VISUAL_STYLES).default('illustrated'),
+});
+export type PrepareCloudLessonInput = Omit<z.infer<typeof PrepareCloudLessonInputSchema>, 'durationSeconds' | 'visualStyle'> & {
+  durationSeconds?: 30 | 60; visualStyle?: CloudLessonStoredVisualStyle;
 };
 
 // ── Rows ────────────────────────────────────────────────────────────────────
@@ -129,7 +190,7 @@ export const CloudLessonProjectSchema = z.object({
   topic: z.string(),
   language_code: z.enum(CLOUD_LESSON_LANGUAGE_CODES),
   target_duration_seconds: z.union([z.literal(30), z.literal(60)]),
-  visual_style: z.enum(CLOUD_LESSON_VISUAL_STYLES).optional(),
+  visual_style: z.enum(CLOUD_LESSON_STORED_VISUAL_STYLES).optional(),
   title: z.string().nullable(),
   learning_objective: z.string().nullable(),
   narration_text: z.string().nullable(),
@@ -166,12 +227,32 @@ export const CloudLessonSceneSchema = z.object({
   status: CloudLessonSceneStatusSchema,
   image_url: z.string().nullable(),
   video_url: z.string().nullable(),
+  /** Storybook chapter title; null for the other styles. */
+  title: z.string().nullable().optional(),
   error_message: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
   completed_at: z.string().nullable(),
 });
 export type CloudLessonScene = z.infer<typeof CloudLessonSceneSchema>;
+
+/** One picture of a storybook scene (`cloud_lesson_shots`). */
+export const CloudLessonShotSchema = z.object({
+  id: z.string().uuid(),
+  project_id: z.string().uuid(),
+  scene_id: z.string().uuid(),
+  shot_index: z.number().int().min(1).max(3),
+  shot_size: z.enum(CLOUD_LESSON_SHOT_SIZES),
+  camera_move: z.enum(CLOUD_LESSON_CAMERA_MOVES),
+  visual_description: z.string(),
+  image_prompt: z.string(),
+  status: z.enum(['queued', 'succeeded', 'failed', 'cancelled']),
+  image_url: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  completed_at: z.string().nullable(),
+});
+export type CloudLessonShot = z.infer<typeof CloudLessonShotSchema>;
 
 /** Job columns safe to show a teacher: no worker ids, prompts or provider ids. */
 export const CLOUD_LESSON_JOB_PUBLIC_COLUMNS =
@@ -225,3 +306,4 @@ type Assert<T extends true> = T;
 type Covers<Row, Parsed> = keyof Row extends keyof Parsed ? true : false;
 export type _CloudProjectCovered = Assert<Covers<Tables<'cloud_lesson_projects'>, CloudLessonProject>>;
 export type _CloudSceneCovered = Assert<Covers<Tables<'cloud_lesson_scenes'>, CloudLessonScene>>;
+export type _CloudShotCovered = Assert<Covers<Tables<'cloud_lesson_shots'>, CloudLessonShot>>;

@@ -380,7 +380,16 @@ def main():
             raise ValueError("Manifest media paths must be absolute")
     if any(not Path(path).is_absolute() for path in config.get("clips", [])):
         raise ValueError("Manifest clips must use absolute paths")
-    result = render_scene(config) if config["mode"] == "scene" else assemble(config)
+    if any(not Path(shot.get("image", "")).is_absolute() for shot in config.get("shots", [])) \
+            or (config.get("music") and not Path(config["music"]).is_absolute()):
+        raise ValueError("Manifest shots and music must use absolute paths")
+    if config.get("visualStyle") == "storybook":
+        # The storybook presentation lives in its own module; the other styles never reach it.
+        sys.modules.setdefault("compositor", sys.modules[__name__])  # one module, so SIGTERM stops storybook's children too
+        import storybook
+        result = storybook.render_scene(config) if config["mode"] == "scene" else storybook.assemble(config)
+    else:
+        result = render_scene(config) if config["mode"] == "scene" else assemble(config)
     print(json.dumps(result))
 
 

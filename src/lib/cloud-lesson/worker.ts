@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { Json } from '@/lib/supabase/database.types';
-import { CreateCloudLessonSchema, type CreateCloudLessonInput } from '@/lib/videos/cloud-lesson-contracts';
+import { PrepareCloudLessonInputSchema, type PrepareCloudLessonInput } from '@/lib/videos/cloud-lesson-contracts';
 
 import { GeminiCallError, geminiTransport, type GeminiTransport } from './gemini';
 import { CloudLessonSourcePlanSchema, type CloudLessonSourcePlan, prepareCloudLesson, type PreparedCloudLesson, type PrepareCloudLessonOptions } from './prepare';
@@ -23,7 +23,7 @@ export type HeartbeatState = 'ok' | 'cancel' | 'lost';
 /** The worker's database boundary is injectable for offline lifecycle tests. */
 export interface CloudPreparationStore {
   claim(workerId: string): Promise<PrepareJob | null>;
-  project(job: PrepareJob): Promise<CreateCloudLessonInput>;
+  project(job: PrepareJob): Promise<PrepareCloudLessonInput>;
   sourcePlan?(job: PrepareJob): Promise<CloudLessonSourcePlan | undefined>;
   heartbeat(job: PrepareJob, progress: number): Promise<HeartbeatState>;
   upload(job: PrepareJob, wav: Buffer): Promise<string>;
@@ -49,7 +49,7 @@ export function createCloudPreparationStore(): CloudPreparationStore {
       if (error || !data) throw new Error('Could not load this lesson request.');
       if (data.status === 'cancelled') throw new PreparationStopped('cancel');
       if (data.status !== 'preparing' || ![30, 60].includes(data.target_duration_seconds)) throw new Error('This request is not an active lesson.');
-      return CreateCloudLessonSchema.parse({ classLevel: data.class_level, subject: data.subject, topic: data.topic, languageCode: data.language_code, durationSeconds: data.target_duration_seconds, visualStyle: data.visual_style });
+      return PrepareCloudLessonInputSchema.parse({ classLevel: data.class_level, subject: data.subject, topic: data.topic, languageCode: data.language_code, durationSeconds: data.target_duration_seconds, visualStyle: data.visual_style });
     },
     async sourcePlan(job) {
       const { data: project, error } = await client.from('cloud_lesson_projects')

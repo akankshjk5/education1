@@ -7,7 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import type { Json } from '@/lib/supabase/database.types';
 import { type CallOptions, generateImage, geminiTransport, type GeminiTransport } from './gemini';
 import { CostMeter } from './pricing';
-import { checkKeyframe } from './vision';
+import { checkKeyframe, checkStorybookShot } from './vision';
 import { PreparationStopped, preparationFailure, type HeartbeatState } from './worker';
 
 export const ImageJobSchema = z.object({
@@ -15,10 +15,30 @@ export const ImageJobSchema = z.object({
   kind: z.literal('image'), status: z.literal('processing'), worker_id: z.string().min(1),
   attempts: z.number().int().positive(), max_attempts: z.number().int().positive(),
   prompt: z.string().min(20).max(4000), negative_prompt: z.string().nullable(),
-  parameters: z.object({ sceneIndex: z.number().int().min(1).max(8), styleReferenceUrl: z.string().url().optional(), awaitsStyleReference: z.boolean().optional() }),
-});
+  /** Storybook lessons make one image job per shot; null for the other styles. */
+  shot_id: z.string().uuid().nullable().optional(),
+  parameters: z.object({
+    sceneIndex: z.number().int().min(1).max(8), styleReferenceUrl: z.string().url().optional(), awaitsStyleReference: z.boolean().optional(),
+    shotIndex: z.number().int().min(1).max(3).optional(), shotSize: z.string().optional(), visualStyle: z.string().optional(),
+  }),
+}).refine((job) => !job.shot_id || job.parameters.shotIndex !== undefined, 'A shot job needs its shot index');
 export type ImageJob = z.infer<typeof ImageJobSchema>;
 export class KeyframeRejected extends Error {}
+
+/** A storybook shot takes the look, not the subject, from shot 1 of scene 1. */
+export const STORYBOOK_REFERENCE_INSTRUCTION = 'Match the pen-and-ink engraving style of the reference picture above exactly: the same linework, cross-hatching, contrast and aged paper tone, and draw any recurring person with the same face, build and clothing. Do not copy its composition. Draw this new scene:';
+
+/** Shot jobs belong to storybook lessons; every other image job is one per scene. */
+export const isStorybookShot = (job: ImageJob) => Boolean(job.shot_id);
+
+/**
+ * Whether a job must arrive with a style reference. One picture per lesson is
+ * drawn without one — scene 1, or shot 1 of scene 1 — and every other picture
+ * copies its look, which is what makes them read as one lesson.
+ */
+export const needsStyleReference = (job: ImageJob) => (isStorybookShot(job)
+  ? !(job.parameters.sceneIndex === 1 && job.parameters.shotIndex === 1)
+  : job.parameters.sceneIndex > 1);
 
 /** Decode and strip metadata. Never upscale an undersized provider response. */
 export async function normalizeKeyframe(bytes: Buffer): Promise<{ mimeType: string; data: Buffer }> {
@@ -49,7 +69,8 @@ export async function downloadStyleReference(url: URL, fetcher: typeof fetch = f
 }
 export interface CloudImageStore {
   claim(workerId: string): Promise<ImageJob | null>;
-  scene(job: ImageJob): Promise<{ index: number; description: string }>;
+  /** The picture to draw: the scene's, or for a storybook shot job the shot's. */
+  scene(job: ImageJob): Promise<{ index: number; description: string; shotIndex?: number }>;
   reference(job: ImageJob, url: string): Promise<{ mimeType: string; data: Buffer }>;
   heartbeat(job: ImageJob, progress: number): Promise<HeartbeatState>;
   upload(job: ImageJob, png: Buffer): Promise<string>;
@@ -70,7 +91,14 @@ export function createCloudImageStore(): CloudImageStore {
       if (!['generating_images', 'generating_videos'].includes(project.status)) throw new Error('Lesson is inactive.');
       const { data, error } = await client.from('cloud_lesson_scenes').select('scene_index,visual_description,status').eq('id', job.scene_id).eq('project_id', job.project_id).single();
       if (error || !data || data.status !== 'generating_image' || data.scene_index !== job.parameters.sceneIndex) throw new Error('Invalid scene claim.');
-      return { index: data.scene_index, description: data.visual_description };
+      if (!job.shot_id) return { index: data.scene_index, description: data.visual_description };
+      // Storybook: draw this shot, which must belong to the claimed scene and still be waiting for its picture.
+      const { data: shot, error: shotError } = await client.from('cloud_lesson_shots').select('shot_index,visual_description,status,scene_id')
+        .eq('id', job.shot_id).eq('project_id', job.project_id).single();
+      if (shotError || !shot || shot.scene_id !== job.scene_id || shot.status !== 'queued' || shot.shot_index !== job.parameters.shotIndex) {
+        throw new Error('Invalid shot claim.');
+      }
+      return { index: data.scene_index, description: shot.visual_description, shotIndex: shot.shot_index };
     },
     async reference(job, url) { return downloadStyleReference(validateStyleReference(url, job.project_id, publicEnv.supabaseUrl)); },
     async heartbeat(job, progress) {
@@ -156,20 +184,24 @@ export async function runCloudImageJob(options: RunImageOptions): Promise<ImageR
     const scene = await options.store.scene(job);
     await checkpoint('style-reference', 10);
     const styleReference = job.parameters.styleReferenceUrl ? await options.store.reference(job, job.parameters.styleReferenceUrl) : undefined;
-    if (scene.index > 1 && !styleReference) throw new Error('Missing style reference.');
+    if (needsStyleReference(job) && !styleReference) throw new Error('Missing style reference.');
     await checkpoint('generate-image', 20);
+    const storybook = isStorybookShot(job);
     const generated = await generateImage({ ...options, transport, meter,
       model: options.model ?? serverEnv.cloudLessonImageModel, aspectRatio: '16:9', imageSize: '2K',
-      styleReference, prompt: `${job.prompt}\nAvoid: ${job.negative_prompt ?? 'text, writing, logos, watermarks'}` });
+      styleReference, prompt: `${job.prompt}\nAvoid: ${job.negative_prompt ?? 'text, writing, logos, watermarks'}`,
+      ...(storybook ? { referenceInstruction: STORYBOOK_REFERENCE_INSTRUCTION } : {}) });
     await checkpoint('normalize-image', 65);
     const image = await normalizeKeyframe(generated.data);
     await checkpoint('check-image', 75);
-    const decision = await checkKeyframe({ ...options, transport, meter, image, description: scene.description, finalAttempt: job.attempts >= job.max_attempts });
+    const check = { ...options, transport, meter, image, description: scene.description, finalAttempt: job.attempts >= job.max_attempts };
+    const decision = storybook ? await checkStorybookShot(check) : await checkKeyframe(check);
     if (!decision.accept) throw new KeyframeRejected();
     await checkpoint('upload-image', 90);
     const url = await options.store.upload(job, image.data);
     await checkpoint('save-image', 98);
     if (!await options.store.complete(job, url, { ...meter.summary(), sceneIndex: scene.index,
+      ...(storybook ? { visualStyle: 'storybook', shotIndex: job.parameters.shotIndex, shotSize: job.parameters.shotSize } : {}),
       model: options.model ?? serverEnv.cloudLessonImageModel, width: 2560, height: 1440,
       requestedImageSize: '2K', styleReferenceUsed: Boolean(styleReference), keyframe: decision,
       warnings: decision.acceptedOnFinalAttempt ? decision.problems : [] }, meter.totalUsd)) throw new PreparationStopped('lost');

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createHiggsfieldProvider, HIGGSFIELD_MODEL, HiggsfieldError, type HiggsfieldProvider } from '../src/lib/cloud-lesson/higgsfield.ts';
-import { mediaAssetUrl, runCloudMediaJob, type MediaJob, type MediaScene, type CloudMediaStore, type CloudMediaRenderer } from '../src/lib/cloud-lesson/media-worker.ts';
+import { assertStorybookShots, mediaAssetUrl, pickLessonMusic, runCloudMediaJob, type MediaJob, type MediaScene, type MediaShot, type CloudMediaStore, type CloudMediaRenderer } from '../src/lib/cloud-lesson/media-worker.ts';
 
 const id = '11111111-1111-4111-8111-111111111111';
 const project = '22222222-2222-4222-8222-222222222222';
@@ -12,18 +14,28 @@ const job: MediaJob = { id, project_id: project, scene_id: id, owner_id: 'user_t
   source_image_url: 'https://storage.test/image.png', parameters: { motionMode: 'animate', sceneIndex: 1, slotSeconds: 7.5, clipSeconds: 5 } };
 const scene: MediaScene = { id, scene_index: 1, duration_seconds: 7.5, caption: 'Water evaporates', overlay: { kind: 'none' },
   status: 'generating_video', motion_mode: 'animate', image_url: job.source_image_url!, video_url: null };
+const shotTwo = '44444444-4444-4444-8444-444444444444';
+const shots: MediaShot[] = [
+  { id, scene_id: id, shot_index: 1, camera_move: 'pan_right', status: 'succeeded', image_url: scene.image_url },
+  { id: shotTwo, scene_id: id, shot_index: 2, camera_move: 'push_in', status: 'succeeded', image_url: 'https://storage.test/shot2.png' },
+];
 let passed = 0;
 async function test(name: string, fn: () => Promise<void>) { await fn(); console.log(`PASS ${name}`); passed++; }
 async function run(config: { short?: boolean; reuse?: boolean; still?: boolean; assemble?: boolean; resume?: boolean; charged?: boolean; cancel?: boolean;
   lost?: boolean; cancelPoll?: boolean; lostPoll?: boolean; uploadCancel?: boolean; terminal?: boolean; ambiguous?: boolean;
-  renderFail?: boolean; completeLost?: boolean; signal?: AbortSignal } = {}) {
+  renderFail?: boolean; completeLost?: boolean; signal?: AbortSignal;
+  storybook?: boolean; noShots?: boolean; musicDir?: string; projectId?: string } = {}) {
+  const style = config.storybook ? 'storybook' : 'illustrated';
+  const manifests: Record<string, unknown>[] = [];
   let submits = 0; let polls = 0; let cancels = 0; let uploads = 0; let completed = 0; let failed = 0; let renders = 0;
   let state: 'ok' | 'cancel' | 'lost' = config.cancel ? 'cancel' : config.lost ? 'lost' : 'ok';
   const persisted: string[] = []; const keys: string[] = []; const downloads: string[] = [];
   let metadata: Record<string, unknown> = {};
-  const current: MediaJob = { ...job, kind: config.assemble ? 'assemble' : 'video',
+  const current: MediaJob = { ...job, kind: config.assemble ? 'assemble' : 'video', project_id: config.projectId ?? project,
     provider_request_id: config.resume ? providerId : null, cost_usd: config.charged ? .175 : 0,
-    parameters: config.reuse ? { ...job.parameters, reusedFromProjectId: id, reusedRawVideoUrl: 'https://storage.test/reused.mp4' } : job.parameters };
+    parameters: config.reuse ? { ...job.parameters, reusedFromProjectId: id, reusedRawVideoUrl: 'https://storage.test/reused.mp4' }
+      : config.storybook ? { ...job.parameters, visualStyle: 'storybook', shotCount: 2 } : job.parameters };
+  const storyScene = config.storybook ? { title: 'The Escape' } : {};
   const provider: HiggsfieldProvider = {
     async submit(input, key) { submits++; keys.push(key); assert.equal(input.image_url, scene.image_url);
       if (config.ambiguous && submits === 1) throw new HiggsfieldError(503);
@@ -37,9 +49,10 @@ async function run(config: { short?: boolean; reuse?: boolean; still?: boolean; 
   };
   const store: CloudMediaStore = {
     async claim() { return current; },
-    async bundle() { return { language: 'en-IN', durationSeconds: config.short ? 30 : 60, visualStyle: 'illustrated', narrationUrl: 'https://storage.test/narration.wav',
-      scenes: config.assemble ? Array.from({ length: config.short ? 4 : 8 }, (_, i) => ({ ...scene, scene_index: i + 1,
-        video_url: `https://storage.test/${i}.mp4`, status: 'succeeded' })) : [{ ...scene, motion_mode: config.still ? 'still' : 'animate' }] }; },
+    async bundle() { return { language: 'en-IN', durationSeconds: config.short ? 30 : 60, visualStyle: style, narrationUrl: 'https://storage.test/narration.wav',
+      scenes: config.assemble ? Array.from({ length: config.short ? 4 : 8 }, (_, i) => ({ ...scene, ...storyScene, scene_index: i + 1,
+        video_url: `https://storage.test/${i}.mp4`, status: 'succeeded' })) : [{ ...scene, ...storyScene, motion_mode: config.still ? 'still' : 'animate' }],
+      ...(config.storybook && !config.assemble && !config.noShots ? { shots } : {}) }; },
     async heartbeat(_, __, requestId) { if (requestId) persisted.push(requestId); return state; },
     async upload() { uploads++; if (config.uploadCancel) state = 'cancel'; return 'https://storage.test/result.mp4'; },
     async complete(_, __, output) { completed++; metadata = output; return !config.completeLost; },
@@ -47,15 +60,15 @@ async function run(config: { short?: boolean; reuse?: boolean; still?: boolean; 
   };
   const renderer: CloudMediaRenderer = { async preflight() {}, async render(manifest) {
     assert.equal(manifest.durationSeconds, config.short ? 30 : 60);
-    assert.equal(manifest.visualStyle, 'illustrated');
-    renders++; if (config.renderFail) throw new Error('secret provider body');
+    assert.equal(manifest.visualStyle, style);
+    manifests.push(manifest); renders++; if (config.renderFail) throw new Error('secret provider body');
     assert.equal(persisted.includes(providerId), !config.still && !config.assemble && !config.reuse);
     await writeFile(String(manifest.output), 'fake mp4'); return { width: 1920, height: 1080, durationSeconds: config.assemble ? 60 : 7.5 };
   } };
   const result = await runCloudMediaJob({ job: current, store, provider, renderer, heartbeatMs: 5, pollMs: 0,
-    usdPerSecond: .035, signal: config.signal, assetUrl: url => new URL(url),
+    usdPerSecond: .035, signal: config.signal, assetUrl: url => new URL(url), musicDir: config.musicDir ?? '',
     download: async (url, path) => { downloads.push(url.href); await writeFile(path, 'fake source'); } });
-  return { result, submits, polls, cancels, uploads, completed, failed, renders, persisted, keys, downloads, metadata };
+  return { result, submits, polls, cancels, uploads, completed, failed, renders, persisted, keys, downloads, metadata, manifests };
 }
 await test('animation persisted, raw retained, scene composed and completed', async () => {
   const r = await run(); assert.equal(r.result.status, 'completed'); assert.equal(r.submits, 1); assert.equal(r.uploads, 2);
@@ -106,5 +119,74 @@ await test('provider sends documented fixed five-second request and auth', async
 await test('provider errors are sanitized and status IDs are checked', async () => {
   await assert.rejects(createHiggsfieldProvider('key:secret', (async () => new Response('secret', { status: 403 })) as typeof fetch).status(providerId), HiggsfieldError);
   await assert.rejects(createHiggsfieldProvider('key:secret', (async () => Response.json({ request_id: id, status: 'completed' })) as typeof fetch).status(providerId));
+});
+
+// ── Storybook (S6): shots in, the storybook compositor, a music bed at assembly ──
+await test('storybook animated scene downloads both shots, animates shot 1 and sends shots to the renderer', async () => {
+  const r = await run({ storybook: true });
+  assert.equal(r.result.status, 'completed'); assert.equal(r.submits, 1);
+  assert.deepEqual(r.downloads.slice(0, 2), [scene.image_url, 'https://storage.test/shot2.png'], 'shot 1 is fetched once, as a shot');
+  assert.equal(r.downloads.length, 3, 'two shots plus the Higgsfield clip');
+  const manifest = r.manifests[0]; const sent = manifest.shots as { image: string; cameraMove: string }[];
+  assert.deepEqual(sent.map(s => s.cameraMove), ['pan_right', 'push_in']);
+  assert.equal(manifest.image, sent[0].image); assert.ok(manifest.rawClip);
+  assert.equal((manifest.scene as MediaScene).title, 'The Escape');
+});
+await test('storybook still scene composes two shots without paying for animation', async () => {
+  const r = await run({ storybook: true, still: true });
+  assert.equal(r.result.status, 'completed'); assert.equal(r.submits + r.polls, 0); assert.equal(r.result.costUsd, 0);
+  assert.equal((r.manifests[0].shots as unknown[]).length, 2); assert.equal(r.manifests[0].rawClip, undefined);
+});
+await test('storybook reuse copies the earlier animation and still composes both shots', async () => {
+  const r = await run({ storybook: true, reuse: true });
+  assert.equal(r.result.status, 'completed'); assert.equal(r.submits + r.polls, 0);
+  assert.ok(r.downloads.includes('https://storage.test/reused.mp4')); assert.equal((r.manifests[0].shots as unknown[]).length, 2);
+});
+await test('storybook scene without its shots fails before any spend', async () => {
+  const r = await run({ storybook: true, noShots: true });
+  assert.equal(r.result.status, 'failed'); assert.equal(r.submits + r.renders, 0);
+});
+await test('storybook assembly picks one music track per lesson, the same one on a retry', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'cloud-music-'));
+  try {
+    for (const name of ['a.wav', 'b.m4a', 'c.wav', 'notes.txt', '.hidden.wav']) await writeFile(join(folder, name), 'x');
+    const first = await run({ storybook: true, assemble: true, short: true, musicDir: folder });
+    const again = await run({ storybook: true, assemble: true, short: true, musicDir: folder });
+    assert.equal(first.result.status, 'completed');
+    const track = String(first.manifests[0].music);
+    assert.ok(track.startsWith(folder) && /[abc]\.(wav|m4a)$/.test(track), track);
+    assert.equal(again.manifests[0].music, track); assert.equal(first.metadata.musicTrack, track.slice(folder.length + 1));
+    const tracks = new Set<string>();
+    for (let n = 0; n < 12; n++) tracks.add(String(await pickLessonMusic(folder, `5555555${n.toString(16)}-5555-4555-8555-555555555555`)));
+    assert.ok(tracks.size > 1, 'different lessons get different tracks');
+    const plain = await run({ assemble: true, short: true, musicDir: folder });
+    assert.equal(plain.manifests[0].music, undefined, 'illustrated lessons never get music');
+  } finally { await rm(folder, { recursive: true, force: true }); }
+});
+await test('storybook assembly without a music folder is narration only', async () => {
+  const r = await run({ storybook: true, assemble: true });
+  assert.equal(r.result.status, 'completed'); assert.equal(r.manifests[0].music, undefined); assert.equal(r.downloads.length, 9);
+});
+await test('music folder misconfiguration is refused, an empty folder is silence', async () => {
+  await assert.rejects(pickLessonMusic(join(tmpdir(), 'no-such-music-folder-x'), project), /CLOUD_LESSON_MUSIC_DIR/);
+  const empty = await mkdtemp(join(tmpdir(), 'cloud-music-'));
+  try { assert.equal(await pickLessonMusic(empty, project), undefined); } finally { await rm(empty, { recursive: true, force: true }); }
+  assert.equal(await pickLessonMusic(undefined, project), undefined);
+});
+await test('storybook shot checks refuse mismatched, missing or reordered shots', async () => {
+  const titled = { ...scene, title: 'The Escape' };
+  const fresh: MediaJob = { ...job, parameters: { ...job.parameters, visualStyle: 'storybook', shotCount: 2 } };
+  assertStorybookShots(shots, titled, fresh);
+  assertStorybookShots(shots, titled, { ...job, parameters: { ...job.parameters, reusedFromProjectId: id } });
+  const bad: [MediaShot[], MediaScene, MediaJob][] = [
+    [[shots[0]], titled, fresh],
+    [[shots[1], shots[0]], titled, fresh],
+    [[{ ...shots[0], image_url: 'https://storage.test/other.png' }, shots[1]], titled, fresh],
+    [[shots[0], { ...shots[1], scene_id: shotTwo }], titled, fresh],
+    [shots, { ...scene, title: null }, fresh],
+    [shots, titled, { ...fresh, parameters: { ...fresh.parameters, shotCount: 3 } }],
+    [shots, titled, job],
+  ];
+  for (const [list, s, j] of bad) assert.throws(() => assertStorybookShots(list, s, j), /storybook shots/);
 });
 console.log(`${passed} cloud media tests passed; no API calls or database writes.`);

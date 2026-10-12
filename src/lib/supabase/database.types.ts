@@ -121,6 +121,7 @@ export type Database = {
           prompt: string
           provider_request_id: string | null
           scene_id: string | null
+          shot_id: string | null
           source_image_url: string | null
           started_at: string | null
           status: string
@@ -151,6 +152,7 @@ export type Database = {
           prompt?: string
           provider_request_id?: string | null
           scene_id?: string | null
+          shot_id?: string | null
           source_image_url?: string | null
           started_at?: string | null
           status?: string
@@ -181,6 +183,7 @@ export type Database = {
           prompt?: string
           provider_request_id?: string | null
           scene_id?: string | null
+          shot_id?: string | null
           source_image_url?: string | null
           started_at?: string | null
           status?: string
@@ -200,6 +203,13 @@ export type Database = {
             columns: ["scene_id"]
             isOneToOne: false
             referencedRelation: "cloud_lesson_scenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cloud_lesson_jobs_shot_id_fkey"
+            columns: ["shot_id"]
+            isOneToOne: false
+            referencedRelation: "cloud_lesson_shots"
             referencedColumns: ["id"]
           },
         ]
@@ -311,6 +321,7 @@ export type Database = {
           project_id: string
           scene_index: number
           status: string
+          title: string | null
           updated_at: string
           video_prompt: string
           video_url: string | null
@@ -333,6 +344,7 @@ export type Database = {
           project_id: string
           scene_index: number
           status?: string
+          title?: string | null
           updated_at?: string
           video_prompt: string
           video_url?: string | null
@@ -355,6 +367,7 @@ export type Database = {
           project_id?: string
           scene_index?: number
           status?: string
+          title?: string | null
           updated_at?: string
           video_prompt?: string
           video_url?: string | null
@@ -366,6 +379,69 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "cloud_lesson_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cloud_lesson_shots: {
+        Row: {
+          camera_move: string
+          completed_at: string | null
+          created_at: string
+          id: string
+          image_prompt: string
+          image_url: string | null
+          project_id: string
+          scene_id: string
+          shot_index: number
+          shot_size: string
+          status: string
+          updated_at: string
+          visual_description: string
+        }
+        Insert: {
+          camera_move?: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          image_prompt: string
+          image_url?: string | null
+          project_id: string
+          scene_id: string
+          shot_index: number
+          shot_size: string
+          status?: string
+          updated_at?: string
+          visual_description: string
+        }
+        Update: {
+          camera_move?: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          image_prompt?: string
+          image_url?: string | null
+          project_id?: string
+          scene_id?: string
+          shot_index?: number
+          shot_size?: string
+          status?: string
+          updated_at?: string
+          visual_description?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cloud_lesson_shots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "cloud_lesson_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cloud_lesson_shots_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "cloud_lesson_scenes"
             referencedColumns: ["id"]
           },
         ]

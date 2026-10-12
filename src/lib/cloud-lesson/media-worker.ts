@@ -1,14 +1,17 @@
 import 'server-only';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { resolve, join, sep } from 'node:path';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { basename, extname, resolve, join, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { publicEnv, serverEnv } from '@/lib/env';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { Json } from '@/lib/supabase/database.types';
-import { createHiggsfieldProvider, HiggsfieldError, HIGGSFIELD_MODEL, type HiggsfieldProvider } from './higgsfield';
+import {
+  CLOUD_LESSON_CAMERA_MOVES, CLOUD_LESSON_STORED_VISUAL_STYLES, type CloudLessonStoredVisualStyle,
+} from '@/lib/videos/cloud-lesson-contracts';
+import { HiggsfieldError, HIGGSFIELD_MODEL, type HiggsfieldProvider } from './higgsfield';
 import { PreparationStopped, type HeartbeatState } from './worker';
 
 export const MediaJobSchema = z.object({
@@ -23,12 +26,52 @@ export type MediaJob = z.infer<typeof MediaJobSchema>;
 export const MediaSceneSchema = z.object({
   id: z.string().uuid(), scene_index: z.number().int().min(1).max(8), duration_seconds: z.coerce.number().refine(v => v === 7.5),
   caption: z.string().max(120), overlay: z.record(z.string(), z.unknown()),
+  title: z.string().min(2).max(60).nullable().optional(), // storybook chapter banner; null for other styles
   motion_mode: z.enum(['animate', 'still']), status: z.string(),
   image_url: z.string().url(), video_url: z.string().url().nullable(),
 });
 export type MediaScene = z.infer<typeof MediaSceneSchema>;
+/** A storybook scene's finished pictures. Shot 1 is the scene's picture and the one Higgsfield animates. */
+export const MediaShotSchema = z.object({
+  id: z.string().uuid(), scene_id: z.string().uuid(), shot_index: z.number().int().min(1).max(3),
+  camera_move: z.enum(CLOUD_LESSON_CAMERA_MOVES), status: z.literal('succeeded'), image_url: z.string().url(),
+});
+export type MediaShot = z.infer<typeof MediaShotSchema>;
 export interface MediaBundle {
-  language: 'en-IN' | 'hi-IN' | 'kn-IN'; visualStyle?: 'illustrated' | 'editorial'; durationSeconds?: 30 | 60; narrationUrl: string; scenes: MediaScene[];
+  language: 'en-IN' | 'hi-IN' | 'kn-IN'; visualStyle?: CloudLessonStoredVisualStyle; durationSeconds?: 30 | 60; narrationUrl: string; scenes: MediaScene[];
+  /** Storybook video jobs only: the claimed scene's shots, in order. */
+  shots?: MediaShot[];
+}
+
+/**
+ * A storybook video job composes its scene from every shot, so all of them must
+ * be finished, belong to this scene, run 1..n, and start with the picture the
+ * job was queued with. A fresh job also carries the count the database saw.
+ */
+export function assertStorybookShots(shots: MediaShot[], scene: MediaScene, job: MediaJob): void {
+  if (shots.length < 2 || shots.length > 3 || shots.some((shot, i) => shot.shot_index !== i + 1 || shot.scene_id !== scene.id)
+    || shots[0].image_url !== scene.image_url || !scene.title
+    || (!job.parameters.reusedFromProjectId
+      && (job.parameters.visualStyle !== 'storybook' || job.parameters.shotCount !== shots.length))) {
+    throw new Error('Invalid storybook shots.');
+  }
+}
+
+/**
+ * One background track per lesson from CLOUD_LESSON_MUSIC_DIR (.wav or .m4a),
+ * chosen from the project id so a retry picks the same one. No folder, an empty
+ * one, or '' means no music; the narration alone is a complete lesson.
+ */
+export async function pickLessonMusic(dir: string | undefined, projectId: string): Promise<string | undefined> {
+  if (!dir) return undefined;
+  const folder = resolve(dir);
+  if (!(await stat(folder).catch(() => undefined))?.isDirectory()) throw new Error('CLOUD_LESSON_MUSIC_DIR is not a folder.');
+  const tracks = (await readdir(folder, { withFileTypes: true }))
+    .filter(entry => entry.isFile() && !entry.name.startsWith('.') && ['.wav', '.m4a'].includes(extname(entry.name).toLowerCase()))
+    .map(entry => entry.name).sort();
+  if (!tracks.length) return undefined;
+  const pick = createHash('sha256').update(projectId).digest().readUInt32BE(0) % tracks.length;
+  return join(folder, tracks[pick]);
 }
 export interface CloudMediaStore {
   claim(workerId: string, kinds: ('video' | 'assemble')[]): Promise<MediaJob | null>;
@@ -57,7 +100,7 @@ export function createCloudMediaStore(): CloudMediaStore {
           || ![30, 60].includes(data.target_duration_seconds) || !data.narration_url
           || Math.abs(Number(data.narration_duration_seconds) - data.target_duration_seconds) > 0.25) throw new Error('Invalid active lesson.');
       const { data: rows, error: sceneError } = await client.from('cloud_lesson_scenes')
-        .select('id,scene_index,duration_seconds,caption,overlay,motion_mode,status,image_url,video_url')
+        .select('id,scene_index,duration_seconds,caption,overlay,title,motion_mode,status,image_url,video_url')
         .eq('project_id', job.project_id).order('scene_index');
       if (sceneError || !rows) throw new Error('Could not load lesson scenes.');
       // Video jobs may run before later keyframes exist. Only parse their own scene,
@@ -78,7 +121,19 @@ export function createCloudMediaStore(): CloudMediaStore {
         || job.parameters.clipSeconds !== 5 || job.parameters.slotSeconds !== 7.5)) throw new Error('Invalid video claim.');
       if (job.kind === 'assemble' && (data.status !== 'assembling' || scenes.some((s, i) =>
         s.scene_index !== i + 1 || s.status !== 'succeeded' || !s.video_url))) throw new Error('Lesson is not ready to assemble.');
-      return { durationSeconds: z.union([z.literal(30), z.literal(60)]).parse(data.target_duration_seconds), visualStyle: z.enum(['illustrated', 'editorial']).parse(data.visual_style), language: z.enum(['en-IN', 'hi-IN', 'kn-IN']).parse(data.language_code), narrationUrl: data.narration_url, scenes };
+      const visualStyle = z.enum(CLOUD_LESSON_STORED_VISUAL_STYLES).parse(data.visual_style);
+      let shots: MediaShot[] | undefined;
+      if (visualStyle === 'storybook' && job.kind === 'video') {
+        const { data: shotRows, error: shotError } = await client.from('cloud_lesson_shots')
+          .select('id,scene_id,shot_index,camera_move,status,image_url')
+          .eq('project_id', job.project_id).eq('scene_id', scenes[0].id).order('shot_index');
+        if (shotError || !shotRows) throw new Error('Could not load storybook shots.');
+        shots = z.array(MediaShotSchema).parse(shotRows);
+        assertStorybookShots(shots, scenes[0], job);
+      } else if (visualStyle !== 'storybook' && job.parameters.visualStyle === 'storybook') {
+        throw new Error('Invalid video claim.');
+      }
+      return { durationSeconds: z.union([z.literal(30), z.literal(60)]).parse(data.target_duration_seconds), visualStyle, language: z.enum(['en-IN', 'hi-IN', 'kn-IN']).parse(data.language_code), narrationUrl: data.narration_url, scenes, ...(shots ? { shots } : {}) };
     },
     async heartbeat(job, progress, providerId) {
       const { data, error } = await client.rpc('heartbeat_cloud_lesson_job', {
@@ -172,6 +227,8 @@ export interface RunMediaOptions {
   job: MediaJob; store: CloudMediaStore; provider?: HiggsfieldProvider; renderer: CloudMediaRenderer;
   signal?: AbortSignal; heartbeatMs?: number; pollMs?: number; providerDeadlineMs?: number;
   usdPerSecond?: number; download?: typeof downloadMedia;
+  /** Storybook music folder; defaults to CLOUD_LESSON_MUSIC_DIR, '' turns music off. */
+  musicDir?: string;
   assetUrl?: (url: string, provider: boolean) => URL;
   onStage?: (stage: string, progress: number) => void;
 }
@@ -227,7 +284,21 @@ export async function runCloudMediaJob(options: RunMediaOptions) {
     const output = join(dir, 'output.mp4'); const metadata: Record<string, unknown> = {};
     if (job.kind === 'video') {
       const scene = bundle.scenes[0];
-      const image = join(dir, 'image.png'); await download(scene.image_url, image);
+      const storybook = bundle.visualStyle === 'storybook';
+      let image = join(dir, 'image.png');
+      const shots: { image: string; cameraMove: string }[] = [];
+      if (storybook) {
+        // Shot 1 is the scene's picture, so it is downloaded once, as a shot.
+        if (!bundle.shots) throw new Error('Storybook shots are missing.');
+        assertStorybookShots(bundle.shots, scene, job);
+        for (const shot of bundle.shots) {
+          const path = join(dir, `shot-${shot.shot_index}.png`);
+          await download(shot.image_url, path); shots.push({ image: path, cameraMove: shot.camera_move });
+        }
+        image = shots[0].image;
+      } else {
+        await download(scene.image_url, image);
+      }
       let rawClip: string | undefined;
       if (scene.motion_mode === 'animate' && job.parameters.reusedFromProjectId) {
         const rawUrl = z.string().url().parse(job.parameters.reusedRawVideoUrl);
@@ -272,15 +343,21 @@ export async function runCloudMediaJob(options: RunMediaOptions) {
       }
       await checkpoint('compose-scene', 65);
       Object.assign(metadata, await options.renderer.render({ mode: 'scene', image, rawClip, output,
-        visualStyle: bundle.visualStyle ?? "editorial", durationSeconds: bundle.durationSeconds ?? 60, language: bundle.language, scene }, dir, controller.signal));
+        visualStyle: bundle.visualStyle ?? "editorial", durationSeconds: bundle.durationSeconds ?? 60, language: bundle.language, scene,
+        ...(storybook ? { shots } : {}) }, dir, controller.signal));
     } else {
       const clips: string[] = [];
       for (const scene of bundle.scenes) { const path = join(dir, `scene-${scene.scene_index}.mp4`);
         await download(scene.video_url!, path); clips.push(path); }
       const narration = join(dir, 'narration.wav'); await download(bundle.narrationUrl, narration);
+      // Only storybook lessons get a music bed; the other styles assemble exactly as before.
+      const music = bundle.visualStyle === 'storybook'
+        ? await pickLessonMusic(options.musicDir ?? serverEnv.cloudLessonMusicDir, job.project_id) : undefined;
+      if (music) metadata.musicTrack = basename(music);
       await checkpoint('assemble-lesson', 65);
       Object.assign(metadata, await options.renderer.render({ mode: 'assemble', clips, narration, output,
-        visualStyle: bundle.visualStyle ?? "editorial", durationSeconds: bundle.durationSeconds ?? 60, language: bundle.language, scenes: bundle.scenes }, dir, controller.signal));
+        visualStyle: bundle.visualStyle ?? "editorial", durationSeconds: bundle.durationSeconds ?? 60, language: bundle.language, scenes: bundle.scenes,
+        ...(music ? { music } : {}) }, dir, controller.signal));
     }
     await checkpoint('upload-media', 90);
     const url = await options.store.upload(job, output, job.kind === 'assemble' ? 'lesson' : 'scene');

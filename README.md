@@ -226,9 +226,9 @@ clerk webhooks listen --token "$(clerk webhooks token)" \
 npm run dev
 ```
 
-Open <http://localhost:3000>. You should land on the **landing page** — it is
-the only public route besides sign-in, sign-up and the webhook. Sign up, and
-Clerk drops you at `/app`, your (empty) deck list.
+Open <http://localhost:3000>. You are sent straight to the **sign-in** page
+(there is no landing page). Choose sign up, and Clerk drops you at `/app`,
+your (empty) deck list. A signed-in visitor to `/` goes straight to `/app`.
 
 Before you trust anything, run the checks:
 
@@ -595,3 +595,88 @@ Offline checks: `npm run test:cloud-prepare`, `npm run test:cloud-media`, and
 use fixtures inside a rolled-back transaction, so workers cannot claim them.
 `ops/cloud/test_compositor.py` with the FFmpeg, FFprobe and fonts arguments also
 renders synthetic 30- and 60-second 1080p videos with audio, without model calls.
+
+
+### Cloud lesson Storybook style
+
+**Storybook** is a third Lesson Video style, built for history and story topics:
+black-and-white pen-and-ink engravings on sepia paper, two pictures a scene with
+slow camera moves and dissolves between them, a ribbon chapter title on every
+scene, a storyteller voice and an optional quiet music bed. It is part of the
+cloud engine only. The illustrated and editorial styles, the RunPod lesson
+engine and the deck generator are unchanged; Storybook has its own skill files,
+compositor module (`ops/cloud/storybook.py`) and shot table.
+
+How a Storybook lesson is made:
+
+1. **Plan.** The writer and auditor run as for every style; then
+   `cloud-lesson-storybook-director` gives each scene a 2–4 word chapter title
+   and exactly two shots (a shot size, a camera move and a picture). Chapter
+   titles are translated with the captions. At most one scene of a 30-second
+   lesson (two of 60 seconds) is animated.
+2. **Pictures.** The image worker draws shot 1 of scene 1 first. Every other
+   shot is then drawn with that picture as its style reference, so the lesson
+   looks like one engraver drew it. `cloud-lesson-storybook-checker` refuses
+   pictures with lettering or unsafe content and asks for a redraw of a wrong
+   or off-style one. Pictures are 2K; 1K loses the fine hatching.
+3. **Scenes.** The media worker sends shot 1 of an animated scene to Higgsfield,
+   then composes each scene from both shots: 8 seconds (a 7.5-second slot plus a
+   half-second tail for the dissolve), sepia grade, paper texture, banner and
+   caption.
+4. **Final video.** Scenes are joined with half-second dissolves on the
+   narration boundaries and trimmed to exactly 30 or 60 seconds, with the
+   narration and, when configured, one music track ducked under it.
+
+**Setup.** Apply `20261011150000_cloud_lesson_storybook.sql` and
+`20261011170000_cloud_lesson_storybook_cheaper.sql` after the earlier cloud
+migrations (`npx supabase db push --dry-run` lists what is pending, then
+`npm run db:push`), run `npm run db:types`, and restart the web app and all
+three cloud workers so they load the new skills. No new keys are needed.
+
+- **Fonts:** the same four files as Step 6. Hindi and Kannada titles use the
+  Noto fonts. For English titles you may add a display face of your choice as
+  `ops/cloud/fonts/StorybookTitle.ttf` (an OFL serif such as IM Fell or Cinzel
+  suits the look); without it the banner uses Kalam.
+- **Music (optional):** set `CLOUD_LESSON_MUSIC_DIR` to a folder of `.wav` or
+  `.m4a` tracks **you have the rights to use**. Each lesson gets one track,
+  picked from the lesson id (a retry gets the same one), faded in and out and
+  ducked under the voice. Unset, or an empty folder, means narration only.
+  `npm run worker:cloud-media -- --preflight` refuses a setting that is not a
+  folder. Only Storybook lessons get music.
+
+**Cost and time.** Measured with live calls in October 2026: plan about
+$0.035, voice $0.006 per 30 seconds, each 2K picture with its check about
+$0.061. A 30-second lesson draws 8 pictures and animates 1 scene, about $0.70;
+60 seconds draws 16 and animates 2, about $1.40. The animation part comes from
+`CLOUD_LESSON_HIGGSFIELD_USD_PER_SECOND`, so set it to your account's real
+Kling 2.5 Turbo Pro rate; redraws and retries add to the total. The form shows
+this estimate before a teacher starts. On a CPU host, scene composition takes
+about 16–24 seconds a scene and assembly about a minute; with picture and
+animation queues, a 30-second lesson is usually ready in 6–10 minutes.
+
+**Checks.**
+
+```bash
+npm run test:cloud-storybook        # director, checker, preparation and image paths; offline
+npm run test:cloud-media            # includes storybook scenes, reuse and music; offline
+npm run test:cloud-ui               # style option, picture progress, estimates, report; offline
+.venv-cloud/bin/python ops/cloud/test_storybook.py \
+  --ffmpeg ffmpeg --ffprobe ffprobe --fonts ops/cloud/fonts   # real 30-second encode, no APIs
+supabase db query --linked --file scripts/test-cloud-storybook.sql   # rolled back, cannot trigger work
+npm run smoke:cloud-storybook -- --confirm-spend   # LIVE: one plan, voice, 3 pictures, about $0.25
+```
+
+**First live lesson.** With the migrations applied and the three workers
+running, open `/app/cloud-lessons`, choose Storybook, 30 seconds, and a story
+topic (for example Class 7 History, "Shivaji Maharaj's escape from Agra").
+When it finishes, read its real cost and time from the queue:
+
+```bash
+npm run report:cloud-lesson -- --latest --style storybook
+npm run report:cloud-lesson -- <lesson-id>
+```
+
+The report is read-only. It lists each stage's jobs, retries, recorded cost
+and time, the total against the form's estimate, and how many scenes Higgsfield
+animated. The Higgsfield figure is an estimate until it is compared with the
+API invoice; update `CLOUD_LESSON_HIGGSFIELD_USD_PER_SECOND` if they differ.

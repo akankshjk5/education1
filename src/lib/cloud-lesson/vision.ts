@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { type CallOptions, generateStructuredWithImage } from './gemini';
 import type { CostMeter } from './pricing';
 import { loadCloudLessonSkill } from './skills';
+import { decideStorybookShot, type StorybookShotDecision, StorybookVerdictSchema } from './storybook';
 
 /**
  * The keyframe gate. Before a picture is paid for again — animated by
@@ -65,4 +66,22 @@ export async function checkKeyframe(options: CheckKeyframeOptions): Promise<Keyf
     maxAttempts: 2,
   });
   return decideKeyframe(data, options.finalAttempt);
+}
+
+/**
+ * The storybook style's gate: `cloud-lesson-storybook-checker` judges one shot
+ * of an engraving-style lesson, including whether it kept the engraving look.
+ * Writing and unsafe imagery are never accepted; see decideStorybookShot.
+ */
+export async function checkStorybookShot(options: CheckKeyframeOptions): Promise<StorybookShotDecision> {
+  const skill = await loadCloudLessonSkill('cloud-lesson-storybook-checker');
+  const { data } = await generateStructuredWithImage({
+    ...options,
+    skill,
+    values: {},
+    schema: StorybookVerdictSchema,
+    userPrompt: `Intended description of this shot:\n${options.description.slice(0, 1200)}\n\nCheck the image above.`,
+    maxAttempts: 2,
+  });
+  return decideStorybookShot(data, options.finalAttempt);
 }
