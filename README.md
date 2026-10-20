@@ -362,7 +362,8 @@ every 15 seconds; cancellation or lost ownership stops further provider calls an
 completion writes. Ctrl+C leaves unfinished work for database lease recovery.
 Each narration upload has a unique filename beneath the project id, so an expired
 worker cannot overwrite another worker's audio. The completion RPC atomically
-saves the eight scenes and releases scene 1's image job.
+saves the planned scenes and releases scene 1's image job (four scenes for a
+30-second lesson; eight for 60 seconds).
 
 For a **live, billable** preparation smoke test (local output only, no database
 jobs or Higgsfield requests):
@@ -400,6 +401,14 @@ npm run worker:cloud-image -- --once
 npm run test:cloud-image
 ```
 
+The image worker defaults to four lanes; preparation stays at one. Override
+with `--concurrency 1` through `--concurrency 4`, for example
+`npm run worker:cloud-image -- --concurrency 2`. Each lane claims jobs with a
+unique worker id; `--once` always processes at most one job. Keep concurrency
+low if Gemini throttles or the host is resource constrained. This overlaps
+queued work but does not shorten an individual provider request or guarantee a
+completion time.
+
 This worker uses the same Gemini backend/key and Supabase service-role setup as
 Step 4. `CLOUD_LESSON_IMAGE_MODEL` defaults to `gemini-nano-banana-2.1`.
 It requests 2K, 16:9 images, decodes and strips metadata with Sharp, and saves
@@ -429,13 +438,14 @@ have provider-side idempotency or resume checkpoints.
 ### Cloud lesson Step 6: animation and final video
 
 The separate `worker:cloud-media` process claims only cloud `video` and
-`assemble` jobs. Existing RunPod workers, queues and compositor files are
-unchanged. Up to six scenes get five-second native 1080p Kling 2.5 Turbo Pro
+`assemble` jobs; it does not use the RunPod queue. Up to six scenes get
+five-second native 1080p Kling 2.5 Turbo Pro
 clips through Higgsfield; still scenes use CPU pan/zoom. Each scene is composed
 at 1920x1080, 24 fps, for exactly 7.5 seconds, with captions and deterministic
 teaching overlays. Animated scenes hold the final frame for the remainder of
-the slot. Eight clips are joined with cuts at the narration boundaries; the
-prepared narration is mixed into a 60-second H.264/AAC MP4. Raw provider clips
+the slot. Four or eight clips are joined with cuts at the narration boundaries;
+the prepared narration is mixed into the requested 30- or 60-second H.264/AAC MP4
+(four scenes at 30 seconds, eight at 60). Raw provider clips
 are uploaded separately and their URLs retained in video-job metadata.
 
 On a CPU Ubuntu host, install Node plus Python, FFmpeg and Pillow with libraqm:
@@ -482,8 +492,15 @@ npm run worker:cloud-media -- --preflight  # Local dependencies only; no paid ca
 npm run test:cloud-media                 # Offline lifecycle/provider tests
 npm run worker:cloud-media               # Claim cloud video and assembly jobs
 npm run worker:cloud-media -- --once     # At most one job
+npm run worker:cloud-media -- --concurrency 1 # Lower concurrency if providers throttle
 npm run worker:cloud-media -- --assemble-only # Does not require Higgsfield credentials
 ```
+
+Media processing defaults to two concurrent jobs, configurable from one to
+four. `--once` always limits the process to one job. The per-process setting is
+not a global limit: total work also depends on how many worker processes are
+running. Concurrency overlaps provider waits and CPU work; provider queues,
+retries and host capacity still determine elapsed time.
 
 Provider submissions use the fixed model
 `kling-video/v2.5-turbo/pro/image-to-video`, five seconds and cfg_scale 0.5.
@@ -518,10 +535,11 @@ build with RAQM; Ubuntu is the recommended deployment environment.
 ### Cloud lesson Step 7: Lesson Video page, cache and language reuse
 
 Open `/app/cloud-lessons` or choose **Lesson Video** in the sidebar. Select
-class, subject, English/Hindi/Kannada and a topic. Lessons are always eight
-7.5-second scenes, with narration and a final 1080p video. The separate page
+class, subject, English/Hindi/Kannada and a topic. New lessons default to
+30 seconds/four 7.5-second scenes; 60 seconds uses eight. Both include
+narration and a final 1080p video. The separate page
 shows stage counts, progress, recorded costs, cancellation and playback.
-The existing Videos page and RunPod queue remain unchanged.
+This cloud lesson queue is separate from the RunPod-backed Videos workflow.
 
 Apply `20261011090000_cloud_lesson_reuse.sql` and regenerate database types
 when setting up another database. The migration retains the original reservation
@@ -532,7 +550,7 @@ lessons. Cancellation does not refund already incurred provider charges.
 
 Exact completed matches can be opened with no new generation charge. For a
 matching lesson in another language, the worker reuses the audited English
-source plan, eight keyframes and stored raw animations. It only regenerates
+source plan, duration-matched scene images and stored raw animations. It only regenerates
 translation, speech, captions and CPU composition. Sources need the canonical
 `sourcePlan` metadata introduced in Step 7; older lessons without it generate
 fresh visuals. Original source URLs remain referenced; do not delete source
@@ -571,9 +589,10 @@ to workers, then are rolled back, so it cannot trigger generation.
 
 ### Cloud lesson duration and presentation
 
-Lesson Video now offers 30 seconds (four scenes) or 60 seconds (eight scenes).
-Every scene retains its 7.5-second narration slot. Scripts are written for the
-selected length; a short lesson explains one focused idea and ends with a recap.
+Lesson Video now defaults to 30 seconds (four scenes) and also offers 60 seconds
+(eight scenes). Every scene retains its 7.5-second narration slot. Scripts are
+written for the selected length; a short lesson explains one focused idea and
+ends with a recap.
 
 The default **2D illustrated explainer** uses bold outlines, a shared teal/coral/
 amber palette, a clean pale-blue frame, timed caption reveals, animated teaching
@@ -595,6 +614,22 @@ Offline checks: `npm run test:cloud-prepare`, `npm run test:cloud-media`, and
 use fixtures inside a rolled-back transaction, so workers cannot claim them.
 `ops/cloud/test_compositor.py` with the FFmpeg, FFprobe and fonts arguments also
 renders synthetic 30- and 60-second 1080p videos with audio, without model calls.
+
+
+### RunPod narrated Videos: faster short lessons
+
+The separate **Videos** workflow now defaults to a 30-second lesson (four
+7.5-second scenes); 60-second (eight-scene) and 90-second (twelve-scene)
+lessons remain available. Shorter lessons reduce the number of images and
+clips, but completion time still depends on the configured GPU and external
+services; the three-minute goal is not a guaranteed SLA. The RunPod GPU worker
+remains serial to respect the single-GPU hardware limit.
+
+Apply `20261019195209_add_30_second_lesson_videos.sql` through the normal
+Supabase migration workflow before deploying the UI change. Offline checks:
+`npm run test:video-fast-path` and the RunPod worker tests under
+`ops/runpod/`. No new paid calls or infrastructure are introduced by the
+short-duration option.
 
 
 ### Cloud lesson Storybook style
@@ -651,8 +686,9 @@ $0.061. A 30-second lesson draws 8 pictures and animates 1 scene, about $0.70;
 `CLOUD_LESSON_HIGGSFIELD_USD_PER_SECOND`, so set it to your account's real
 Kling 2.5 Turbo Pro rate; redraws and retries add to the total. The form shows
 this estimate before a teacher starts. On a CPU host, scene composition takes
-about 16–24 seconds a scene and assembly about a minute; with picture and
-animation queues, a 30-second lesson is usually ready in 6–10 minutes.
+about 16–24 seconds a scene and assembly about a minute. End-to-end time varies
+with provider queues, retries, worker availability and the number of jobs ahead;
+there is no guaranteed completion-time SLA.
 
 **Checks.**
 

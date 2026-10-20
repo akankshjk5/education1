@@ -52,7 +52,7 @@ export function LessonVideoStudio({ initialProjects }: { initialProjects: Lesson
   const [subject, setSubject] = useState('');
   const [topic, setTopic] = useState('');
   const [languageCode, setLanguageCode] = useState<VideoLanguageCode>('en-IN');
-  const [targetDurationSeconds, setTargetDurationSeconds] = useState<LessonVideoDuration>(60);
+  const [targetDurationSeconds, setTargetDurationSeconds] = useState<LessonVideoDuration>(30);
   const [submitting, setSubmitting] = useState(false);
   const [setupElapsedSeconds, setSetupElapsedSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -179,7 +179,7 @@ export function LessonVideoStudio({ initialProjects }: { initialProjects: Lesson
           <label className="mt-3 block text-sm font-medium">Topic<input required minLength={3} maxLength={300} value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="e.g. How Python loops work" className={`${fieldClasses} mt-1.5`} /></label>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <label className="text-sm font-medium">Voice-over language<select value={languageCode} onChange={(event) => setLanguageCode(event.target.value as VideoLanguageCode)} className={`${fieldClasses} mt-1.5`}>{VIDEO_LANGUAGES.map((language) => <option key={language.code} value={language.code}>{language.label}</option>)}</select></label>
-            <label className="text-sm font-medium">Video length<select value={targetDurationSeconds} onChange={(event) => setTargetDurationSeconds(Number(event.target.value) as LessonVideoDuration)} className={`${fieldClasses} mt-1.5`}>{LESSON_VIDEO_DURATIONS.map((duration) => <option key={duration} value={duration}>{duration} seconds</option>)}</select></label>
+            <label className="text-sm font-medium">Video length<select value={targetDurationSeconds} onChange={(event) => setTargetDurationSeconds(Number(event.target.value) as LessonVideoDuration)} className={`${fieldClasses} mt-1.5`}>{LESSON_VIDEO_DURATIONS.map((duration) => <option key={duration} value={duration}>{duration} seconds{duration === 30 ? ' · fastest' : ''}</option>)}</select></label>
           </div>
           <button type="submit" disabled={submitting} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50">{submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4 fill-current" />}{submitting ? 'Saving request…' : 'Generate narrated video'}</button>
           {selected?.status === 'preparing' ? <PreparationProgress elapsedSeconds={setupElapsedSeconds} /> : null}

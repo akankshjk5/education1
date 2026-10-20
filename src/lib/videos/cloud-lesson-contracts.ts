@@ -110,7 +110,7 @@ export const CreateCloudLessonSchema = z.object({
   subject: z.string().trim().min(2).max(100),
   topic: z.string().trim().min(3).max(300),
   languageCode: z.enum(CLOUD_LESSON_LANGUAGE_CODES).default('en-IN'),
-  durationSeconds: z.union([z.literal(30), z.literal(60)]).default(60),
+  durationSeconds: z.union([z.literal(30), z.literal(60)]).default(30),
   visualStyle: z.enum(CLOUD_LESSON_VISUAL_STYLES).default('illustrated'),
 });
 export type CreateCloudLessonInput = Omit<z.infer<typeof CreateCloudLessonSchema>, 'durationSeconds' | 'visualStyle'> & {

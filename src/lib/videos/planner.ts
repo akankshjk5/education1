@@ -84,7 +84,7 @@ export const LessonPlanSchema = z.object({
   title: z.string().trim().min(3).max(200),
   learningObjective: z.string().trim().min(10).max(500),
   visualBible: z.string().trim().min(40).max(600),
-  scenes: z.array(LessonSceneSchema).min(8).max(12),
+  scenes: z.array(LessonSceneSchema).min(4).max(12),
 }).superRefine((plan, ctx) => sequentialIndexes(plan.scenes, ctx));
 
 export type LessonPlan = z.infer<typeof LessonPlanSchema>;
@@ -93,7 +93,7 @@ const NarrationRevisionSchema = z.object({
   scenes: z.array(z.object({
     index: z.number().int().min(1).max(12),
     narration: z.string().trim().min(5).max(500),
-  })).min(8).max(12),
+  })).min(4).max(12),
 });
 
 
@@ -193,10 +193,10 @@ export async function planLesson(input: {
   subject: string;
   topic: string;
   languageCode: VideoLanguageCode;
-  targetDurationSeconds: 60 | 90;
+  targetDurationSeconds: 30 | 60 | 90;
 }): Promise<LessonPlan> {
   const language = videoLanguage(input.languageCode);
-  const sceneCount = input.targetDurationSeconds === 60 ? 8 : 12;
+  const sceneCount = input.targetDurationSeconds / 7.5;
   const values = {
     duration: input.targetDurationSeconds,
     classLevel: input.classLevel,
@@ -215,7 +215,7 @@ export async function planLesson(input: {
       narration: z.string().trim().min(5).max(500),
       caption: CaptionSchema,
       overlay: LessonOverlaySchema,
-    })).min(8).max(12),
+    })).min(4).max(12),
   }).superRefine((draft, ctx) => {
     sequentialIndexes(draft.scenes, ctx, sceneCount);
     const narration = draft.scenes.map((scene) => scene.narration).join(' ');
@@ -647,7 +647,7 @@ export async function adjustNarrationToFit(
   plan: LessonPlan,
   input: {
     languageCode: VideoLanguageCode;
-    targetDurationSeconds: 60 | 90;
+    targetDurationSeconds: 30 | 60 | 90;
     measuredDurationSeconds: number;
   },
 ): Promise<LessonPlan> {

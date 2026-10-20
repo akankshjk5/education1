@@ -11,6 +11,7 @@ from media_worker import (
     QueueClient,
     WorkerError,
     cleanup_job_files,
+    composite_lesson_clip,
     history_output_paths,
     lesson_filter_graph,
     load_workflow,
@@ -186,6 +187,37 @@ class WorkerContractTests(unittest.TestCase):
             self.assertFalse(uses_editorial_composite({"kind": "video", "_queue": "deck"}))
         with patch.dict("os.environ", {"LESSON_COMPOSITE_MODE": "off"}):
             self.assertFalse(uses_editorial_composite({"kind": "video", "_queue": "lesson"}))
+
+    def test_editorial_compositor_scene_count_matches_lesson_duration(self) -> None:
+        class Queue:
+            def __init__(self, duration: int) -> None:
+                self.duration = duration
+
+            def lesson_render_context(self, _scene_id: str) -> dict:
+                return {
+                    "target_duration_seconds": self.duration,
+                    "scene_index": 1,
+                    "duration_seconds": 7.5,
+                }
+
+            def cancelled(self, _job: dict) -> bool:
+                return False
+
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            root = Path(directory)
+            raw_clip = root / "raw.mp4"
+            raw_clip.write_bytes(b"placeholder")
+            for duration, expected_count in ((30, 4), (60, 8), (90, 12)):
+                with self.subTest(duration=duration), patch(
+                    "lesson_compositor.render_editorial_scene", return_value={},
+                ) as render:
+                    composite_lesson_clip(
+                        {"id": "job", "scene_id": "scene"},
+                        Queue(duration),
+                        raw_clip,
+                        root,
+                    )
+                    self.assertEqual(render.call_args.kwargs["scene_count"], expected_count)
 
     def test_scene_description_drops_the_house_style(self) -> None:
         prompt = "A brass balance scale holding a cube. Vintage editorial photograph with muted tones."

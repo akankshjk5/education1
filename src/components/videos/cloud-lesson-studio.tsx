@@ -32,9 +32,9 @@ export function CloudLessonStudio({ initialProjects, initialId, setupError, anim
   const [busy, setBusy] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [offer, setOffer] = useState<{ exact: CloudLessonProject | null; reusable: CloudLessonProject | null; input: CreateCloudLessonInput } | null>(null);
-  const [input, setInput] = useState<CreateCloudLessonInput>({ classLevel: 6, subject: 'Science', languageCode: 'en-IN', topic: '', durationSeconds: 60, visualStyle: 'illustrated' });
+  const [input, setInput] = useState<CreateCloudLessonInput>({ classLevel: 6, subject: 'Science', languageCode: 'en-IN', topic: '', durationSeconds: 30, visualStyle: 'illustrated' });
   const submitting = useRef(false);
-  const style = input.visualStyle ?? 'illustrated'; const seconds = input.durationSeconds ?? 60;
+  const style = input.visualStyle ?? 'illustrated'; const seconds = input.durationSeconds ?? 30;
   const storybook = style === 'storybook';
   const animated = cloudLessonAnimationCap(style, seconds);
   // animationAllowance is six five-second clips; one clip is a sixth of it.
@@ -123,7 +123,7 @@ export function CloudLessonStudio({ initialProjects, initialId, setupError, anim
         <label className="mt-4 block text-sm font-medium">Topic<textarea required minLength={3} maxLength={300} rows={3} className={`${field} resize-y`} value={input.topic} placeholder="How does the water cycle work?" onChange={e => { setOffer(null); setInput({ ...input, topic: e.target.value }); }} /></label>
         <div className="mt-4 grid grid-cols-2 gap-3">
           <label className="text-sm font-medium">Duration<select className={field} value={input.durationSeconds} onChange={e => { setOffer(null); setInput({ ...input, durationSeconds: Number(e.target.value) as 30 | 60 }); }}>
-            <option value={30}>30 seconds · 4 scenes</option><option value={60}>60 seconds · 8 scenes</option>
+            <option value={30}>30 seconds · fastest · 4 scenes</option><option value={60}>60 seconds · 8 scenes</option>
           </select></label>
           <label className="text-sm font-medium">Visual style<select className={field} value={input.visualStyle} onChange={e => { setOffer(null); setInput({ ...input, visualStyle: e.target.value as CreateCloudLessonInput['visualStyle'] }); }}>
             {CLOUD_LESSON_VISUAL_STYLES.map(s => <option key={s} value={s}>{CLOUD_LESSON_STYLE_COPY[s].label}</option>)}
@@ -132,7 +132,7 @@ export function CloudLessonStudio({ initialProjects, initialId, setupError, anim
         <p className="mt-3 text-xs text-neutral-500">{CLOUD_LESSON_STYLE_COPY[style].description}</p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs text-neutral-500"><span className="rounded-md bg-black/5 px-2 py-1 dark:bg-white/10">{seconds} seconds</span><span className="rounded-md bg-black/5 px-2 py-1 dark:bg-white/10">1080p</span><span className="rounded-md bg-black/5 px-2 py-1 dark:bg-white/10">Narrated</span>{storybook && <span className="rounded-md bg-black/5 px-2 py-1 dark:bg-white/10">{cloudLessonPictureCount(style, seconds)} pictures</span>}</div>
         {storybook
-          ? <p className="mt-4 text-xs leading-relaxed text-neutral-500">About ${storybookEstimate.toFixed(2)} for this lesson: {cloudLessonPictureCount(style, seconds)} engraved pictures, {animated} animated scene{animated === 1 ? '' : 's'}, the script and a storyteller voice. Retries and provider prices can raise it. Usually ready in {seconds === 30 ? '6 to 10' : '10 to 18'} minutes. Existing matching lessons have no new generation charge.</p>
+          ? <p className="mt-4 text-xs leading-relaxed text-neutral-500">About ${storybookEstimate.toFixed(2)} for this lesson: {cloudLessonPictureCount(style, seconds)} engraved pictures, {animated} animated scene{animated === 1 ? '' : 's'}, the script and a storyteller voice. Retries and provider prices can raise it. Choose 30 seconds for the quickest option; actual completion time depends on provider queues. Existing matching lessons have no new generation charge.</p>
           : <p className="mt-4 text-xs leading-relaxed text-neutral-500">Animation allowance: up to ${(animationAllowance * animated / 6).toFixed(2)}, plus script, images and speech. Provider prices and retries affect the total. Existing matching lessons have no new generation charge.</p>}
         <button disabled={busy} className={`${button} mt-5 w-full`} type="submit">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Film className="h-4 w-4" />}Check and generate</button>
         <p className="mt-3 text-xs text-neutral-500">Up to 2 lessons at once · 10 new lessons per 24 hours</p>

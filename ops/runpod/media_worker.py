@@ -947,7 +947,7 @@ def composite_lesson_clip(
             language_code=str(context.get("language_code") or "en-IN"),
             overlay=context.get("overlay"),
             scene_index=int(context["scene_index"]),
-            scene_count=8 if target == 60 else 12,
+            scene_count={30: 4, 60: 8, 90: 12}[target],
             duration=float(context["duration_seconds"]),
             fonts_dir=Path(os.environ.get("LESSON_FONTS_DIR", "/workspace/lumina-fonts")),
             should_stop=lambda: STOP.is_set() or queue.cancelled(job),
@@ -1055,7 +1055,7 @@ def assemble_lesson_video(
     project = bundle["project"]
     scenes = bundle["scenes"]
     target_duration = int(project["target_duration_seconds"])
-    expected_count = 8 if target_duration == 60 else 12
+    expected_count = {30: 4, 60: 8, 90: 12}[target_duration]
     if len(scenes) != expected_count:
         raise WorkerError("invalid_scene_count", f"Expected {expected_count} scenes, got {len(scenes)}")
 

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { VIDEO_LANGUAGES } from '@/lib/videos/languages';
 
-export const LESSON_VIDEO_DURATIONS = [60, 90] as const;
+export const LESSON_VIDEO_DURATIONS = [30, 60, 90] as const;
 export type LessonVideoDuration = (typeof LESSON_VIDEO_DURATIONS)[number];
 
 const languageCodes = VIDEO_LANGUAGES.map((language) => language.code) as [
@@ -15,7 +15,7 @@ export const CreateLessonVideoSchema = z.object({
   subject: z.string().trim().min(2).max(100),
   topic: z.string().trim().min(3).max(300),
   languageCode: z.enum(languageCodes).default('en-IN'),
-  targetDurationSeconds: z.union([z.literal(60), z.literal(90)]).default(60),
+  targetDurationSeconds: z.union([z.literal(30), z.literal(60), z.literal(90)]).default(30),
 });
 
 export const LessonVideoStatusSchema = z.enum([
@@ -64,7 +64,7 @@ export const LessonVideoProjectSchema = z.object({
   topic: z.string(),
   language_code: z.enum(languageCodes),
   language_name: z.string(),
-  target_duration_seconds: z.union([z.literal(60), z.literal(90)]),
+  target_duration_seconds: z.union([z.literal(30), z.literal(60), z.literal(90)]),
   title: z.string(),
   learning_objective: z.string(),
   narration_text: z.string(),
@@ -84,9 +84,7 @@ export type LessonVideoScene = z.infer<typeof LessonVideoSceneSchema>;
 export interface LessonVideoDetail {
   project: LessonVideoProject;
   scenes: LessonVideoScene[];
-  progress: number;
   etaSeconds: number | null;
-  sceneProgress: Record<string, number>;
   completedClips: number;
   totalClips: number;
   activeSceneIndex: number | null;

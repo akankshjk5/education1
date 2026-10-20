@@ -28,6 +28,7 @@
     "db:lint": "supabase db lint",
     "db:types": "supabase gen types typescript --linked --schema public > src/lib/supabase/database.types.ts",
     "worker:cloud-image": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/cloud-lesson-worker.mts --kinds image",
+    "test:video-fast-path": "tsx --require ./scripts/allow-server-only.cjs scripts/test-video-fast-path.mts",
     "test:cloud-image": "tsx --require ./scripts/allow-server-only.cjs scripts/test-cloud-image.mts",
     "worker:cloud-media": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/cloud-media-worker.mts",
     "test:cloud-media": "tsx --require ./scripts/allow-server-only.cjs scripts/test-cloud-media.mts",

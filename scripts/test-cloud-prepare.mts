@@ -15,7 +15,7 @@ const test = async (name: string, body: () => Promise<void>) => {
   passed += 1;
   console.log(`ok ${name}`);
 };
-const input = { classLevel: 6, subject: 'Science', topic: 'Water cycle', languageCode: 'en-IN' as const, visualStyle: 'editorial' as const };
+const input = { classLevel: 6, subject: 'Science', topic: 'Water cycle', languageCode: 'en-IN' as const, durationSeconds: 60 as const, visualStyle: 'editorial' as const };
 const NO_WAIT = { retryDelaysMs: [], maxRetryWaitMs: 0 };
 const noReference = async () => null;
 const words = ['evaporation', 'condensation', 'rainfall', 'collection', 'rivers', 'oceans', 'clouds', 'sunlight'];
