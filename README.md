@@ -468,18 +468,21 @@ DejaVu bold font into that directory. Font files are deployment assets, not
 bundled in this repository. Hindi/Kannada require Pillow's RAQM shaping support;
 preflight refuses to claim jobs without it or without any required fonts.
 
-On Windows, use `.venv-cloud\Scripts\python.exe` for `CLOUD_LESSON_PYTHON`,
-install `ops/cloud/requirements.txt`, and configure the absolute FFmpeg/FFprobe
-paths in `.env`. Pillow's Windows wheel also requires a separate FriBiDi DLL.
-For 64-bit Python, download the
-[MSYS2 FriBiDi 1.0.17 package](https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-fribidi-1.0.17-1-any.pkg.tar.zst),
-verify SHA256 `707f6a2f9a49c83938271bfd92a11f80bd4c18c4837210173fcb39e9d841e5ac`,
-and extract `mingw64/bin/libfribidi-0.dll` into `.venv-cloud/Scripts`.
-Keep the package's `mingw64/share/licenses/fribidi/COPYING` when distributing
-the DLL. The compositor loads this virtual-environment-local DLL before Pillow
-initializes, enabling RAQM without modifying Windows system directories or PATH.
-All four font files above are still required. Run `worker:cloud-media -- --preflight`
-to verify the complete configuration before starting a worker.
+On Windows, Docker is the recommended compositor runtime because the standard
+Windows Pillow wheel does not include RAQM. Install Docker Desktop and the four
+font files above, then build the isolated image and set this in `.env`:
+
+```bash
+docker build -f ops/cloud/compositor.Dockerfile -t lumina-cloud-compositor:local ops/cloud
+CLOUD_LESSON_COMPOSITOR_RUNTIME=docker
+```
+
+The compositor container gets only `ops/cloud` (read-only) and generated media
+directories (read/write); it has no network access and receives no API keys.
+For a native Windows runtime, set `CLOUD_LESSON_COMPOSITOR_RUNTIME=local`, use a
+Python build with Pillow RAQM support, and configure absolute Python,
+FFmpeg/FFprobe, and font paths in `.env`. Run
+`worker:cloud-media -- --preflight` before starting a worker.
 
 Set `HF_CREDENTIALS=KEY_ID:KEY_SECRET` in `.env`. Alternatives are `HF_KEY` or
 `HF_API_KEY_ID` plus `HF_API_KEY_SECRET`. The existing `HIGGSFIELD` variable is

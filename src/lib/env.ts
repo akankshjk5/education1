@@ -273,6 +273,12 @@ export const serverEnv = {
   get cloudLessonFfmpeg() { return process.env.CLOUD_LESSON_FFMPEG?.trim() || 'ffmpeg'; },
   get cloudLessonFfprobe() { return process.env.CLOUD_LESSON_FFPROBE?.trim() || 'ffprobe'; },
   get cloudLessonFontsDir() { return process.env.CLOUD_LESSON_FONTS_DIR?.trim() || 'ops/cloud/fonts'; },
+  get cloudLessonCompositorRuntime(): 'local' | 'docker' {
+    return process.env.CLOUD_LESSON_COMPOSITOR_RUNTIME?.trim().toLowerCase() === 'docker' ? 'docker' : 'local';
+  },
+  get cloudLessonCompositorImage() {
+    return process.env.CLOUD_LESSON_COMPOSITOR_IMAGE?.trim() || 'lumina-cloud-compositor:local';
+  },
   /** Optional folder of licensed .wav/.m4a background tracks for storybook lessons. Unset = no music. */
   get cloudLessonMusicDir() { return process.env.CLOUD_LESSON_MUSIC_DIR?.trim() || undefined; },
   /** Local encoding tools need runtime paths and locale, but no API credentials. */

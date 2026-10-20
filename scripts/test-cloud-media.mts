@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHiggsfieldProvider, HIGGSFIELD_MODEL, HiggsfieldError, type HiggsfieldProvider } from '../src/lib/cloud-lesson/higgsfield.ts';
-import { assertStorybookShots, mediaAssetUrl, pickLessonMusic, runCloudMediaJob, type MediaJob, type MediaScene, type MediaShot, type CloudMediaStore, type CloudMediaRenderer } from '../src/lib/cloud-lesson/media-worker.ts';
+import { assertStorybookShots, translateContainerPaths, mediaAssetUrl, pickLessonMusic, runCloudMediaJob, type MediaJob, type MediaScene, type MediaShot, type CloudMediaStore, type CloudMediaRenderer } from '../src/lib/cloud-lesson/media-worker.ts';
 
 const id = '11111111-1111-4111-8111-111111111111';
 const project = '22222222-2222-4222-8222-222222222222';
@@ -21,6 +21,19 @@ const shots: MediaShot[] = [
 ];
 let passed = 0;
 async function test(name: string, fn: () => Promise<void>) { await fn(); console.log(`PASS ${name}`); passed++; }
+await test('container compositor paths map workspace assets and leave external paths alone', async () => {
+  const root = process.cwd();
+  const outside = join(tmpdir(), 'licensed-music.wav');
+  assert.deepEqual(translateContainerPaths({
+    image: join(root, 'generated', 'image.png'),
+    nested: { clips: [join(root, 'generated', 'scene.mp4'), outside] },
+    caption: 'Lesson title',
+  }, root), {
+    image: '/workspace/generated/image.png',
+    nested: { clips: ['/workspace/generated/scene.mp4', outside] },
+    caption: 'Lesson title',
+  });
+});
 async function run(config: { short?: boolean; reuse?: boolean; still?: boolean; assemble?: boolean; resume?: boolean; charged?: boolean; cancel?: boolean;
   lost?: boolean; cancelPoll?: boolean; lostPoll?: boolean; uploadCancel?: boolean; terminal?: boolean; ambiguous?: boolean;
   renderFail?: boolean; completeLost?: boolean; signal?: AbortSignal;

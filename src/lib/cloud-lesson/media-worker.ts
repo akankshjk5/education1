@@ -2,7 +2,7 @@ import 'server-only';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { basename, extname, resolve, join, sep } from 'node:path';
+import { basename, extname, resolve, join, sep, isAbsolute, relative } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { publicEnv, serverEnv } from '@/lib/env';
@@ -198,13 +198,40 @@ export interface CloudMediaRenderer {
   preflight(): Promise<void>;
   render(manifest: Record<string, unknown>, dir: string, signal: AbortSignal): Promise<Record<string, unknown>>;
 }
+
+export function translateContainerPaths(value: unknown, workspace = resolve()): unknown {
+  if (typeof value === 'string' && isAbsolute(value)) {
+    const path = relative(workspace, value);
+    if (path === '') return '/workspace';
+    if (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)) {
+      return `/workspace/${path.split(sep).join('/')}`;
+    }
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(item => translateContainerPaths(item, workspace));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, translateContainerPaths(item, workspace)]));
+  }
+  return value;
+}
+
 /** Python receives local paths only, never service keys or provider credentials. */
 export function createCloudMediaRenderer(): CloudMediaRenderer {
+  const useDocker = serverEnv.cloudLessonCompositorRuntime === 'docker';
   const executable = serverEnv.cloudLessonPython;
   const script = resolve('ops/cloud/compositor.py');
-  const config = { ffmpeg: serverEnv.cloudLessonFfmpeg, ffprobe: serverEnv.cloudLessonFfprobe, fontsDir: resolve(serverEnv.cloudLessonFontsDir) };
+  const config = useDocker
+    ? { ffmpeg: '/usr/bin/ffmpeg', ffprobe: '/usr/bin/ffprobe', fontsDir: '/workspace/ops/cloud/fonts' }
+    : { ffmpeg: serverEnv.cloudLessonFfmpeg, ffprobe: serverEnv.cloudLessonFfprobe, fontsDir: resolve(serverEnv.cloudLessonFontsDir) };
   const invoke = (args: string[], signal?: AbortSignal) => new Promise<string>((resolveCall, reject) => {
-    const child = spawn(executable, [script, ...args], { windowsHide: true, signal,
+    const dockerArgs = [
+      'run', '--rm', '--network', 'none',
+      '--mount', `type=bind,source=${resolve('ops/cloud').replaceAll('\\', '/')},target=/workspace/ops/cloud,readonly`,
+      '--mount', `type=bind,source=${resolve('generated').replaceAll('\\', '/')},target=/workspace/generated`,
+      '--workdir', '/workspace', serverEnv.cloudLessonCompositorImage,
+      'python', '/workspace/ops/cloud/compositor.py', ...args,
+    ];
+    const child = spawn(useDocker ? 'docker' : executable, useDocker ? dockerArgs : [script, ...args], { windowsHide: true, signal,
       env: serverEnv.cloudLessonSubprocessEnv, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = ''; let stderr = '';
     const timer = setTimeout(() => { child.kill(); reject(new Error('Cloud composition exceeded its deadline.')); }, 30 * 60_000);
@@ -214,11 +241,22 @@ export function createCloudMediaRenderer(): CloudMediaRenderer {
     child.on('close', code => { clearTimeout(timer); code === 0 ? resolveCall(stdout) : reject(new Error(`Cloud composition failed: ${stderr}`)); });
   });
   return {
-    async preflight() { await invoke(['--preflight', '--config', JSON.stringify(config)]); },
+    async preflight() {
+      await mkdir(resolve('generated'), { recursive: true });
+      await invoke(['--preflight', '--config', JSON.stringify(config)]);
+    },
     async render(manifest, dir, signal) {
-      const path = join(dir, 'manifest.json');
-      await writeFile(path, JSON.stringify({ ...manifest, ...config }));
-      return z.record(z.string(), z.unknown()).parse(JSON.parse(await invoke(['--manifest', path], signal)));
+      const path = join(dir, useDocker ? 'manifest.container.json' : 'manifest.json');
+      const payload = { ...manifest, ...config };
+      await writeFile(path, JSON.stringify(useDocker ? translateContainerPaths(payload) : payload));
+      try {
+        const manifestPath = useDocker
+          ? `/workspace/${relative(resolve(), path).split(sep).join('/')}`
+          : path;
+        return z.record(z.string(), z.unknown()).parse(JSON.parse(await invoke(['--manifest', manifestPath], signal)));
+      } finally {
+        if (useDocker) await rm(path, { force: true });
+      }
     },
   };
 }
