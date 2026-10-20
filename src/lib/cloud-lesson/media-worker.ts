@@ -1,8 +1,11 @@
 import 'server-only';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { createWriteStream } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, resolve, join, sep, isAbsolute, relative } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { publicEnv, serverEnv } from '@/lib/env';
@@ -186,12 +189,31 @@ export async function downloadMedia(url: URL, path: string, fetcher: typeof fetc
   if (!response.ok || !response.body) throw new Error('Could not download lesson media.');
   const max = 250 * 1024 * 1024;
   if (Number(response.headers.get('content-length') || 0) > max) throw new Error('Media download exceeds size limit.');
-  const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+  let size = 0;
+  const reader = response.body.getReader();
+  const chunks = (async function* () {
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > max) throw new Error('Media download exceeds size limit.');
+        yield value;
+      }
+    } finally {
+      await reader.cancel();
+    }
+  })();
   try {
-    while (true) { const { value, done } = await reader.read(); if (done) break;
-      size += value.length; if (size > max) throw new Error('Media download exceeds size limit.'); chunks.push(value); }
-  } finally { await reader.cancel(); }
-  await writeFile(path, Buffer.concat(chunks));
+    await pipeline(Readable.from(chunks, { objectMode: false }), createWriteStream(path));
+  } catch (error) {
+    try {
+      await rm(path, { force: true });
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Media download failed and its partial file could not be removed.');
+    }
+    throw error;
+  }
 }
 
 export interface CloudMediaRenderer {

@@ -2,7 +2,6 @@ import 'server-only';
 
 import type { AgentRunRecord } from '@agents/telemetry';
 import type { SlideSpec, StyleSpec } from '@agents/types';
-import { progressForStage } from '@/lib/generation/stages';
 import { assertBuildQuota } from '@/lib/limits';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
@@ -62,7 +61,7 @@ export async function startJob(
       owner_id: userId,
       status: 'running',
       stage: 'queued',
-      progress: progressForStage('queued'),
+      progress: 0,
       input: input as Json,
       started_at: new Date().toISOString(),
     })
@@ -81,7 +80,7 @@ export async function reportProgress(jobId: string, stage: string): Promise<void
   const admin = createAdminClient();
   await admin
     .from('generation_jobs')
-    .update({ stage, progress: progressForStage(stage) })
+    .update({ stage })
     .eq('id', jobId);
 }
 

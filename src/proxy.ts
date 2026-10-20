@@ -1,4 +1,8 @@
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server';
+
+const hasClerkConfig = () => Boolean(
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() && process.env.CLERK_SECRET_KEY?.trim(),
+);
 
 /**
  * Next.js 16 renamed Middleware to Proxy. One file per project, beside `app/`.
@@ -23,16 +27,31 @@ import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
  * Still only the outer gate. Pages and Server Actions re-check with
  * `requireUserId()`, and RLS re-checks under both.
  */
-const isPublicRoute = createRouteMatcher([
-  '/',
-  '/sign-in(.*)',
-  '/sign-up(.*)',
-  '/api/webhooks(.*)',
-]);
 
-export default clerkMiddleware(async (auth, request) => {
-  if (!isPublicRoute(request)) await auth.protect();
-});
+export default async function proxy(request: NextRequest, event: NextFetchEvent) {
+  if (!hasClerkConfig()) {
+    return NextResponse.next();
+  }
+
+  const { clerkMiddleware, createRouteMatcher } = await import('@clerk/nextjs/server');
+  const isPublicRoute = createRouteMatcher([
+    '/',
+    '/sign-in(.*)',
+    '/sign-up(.*)',
+    '/api/webhooks(.*)',
+  ]);
+
+  const middleware = clerkMiddleware(async (auth, request) => {
+    if (!isPublicRoute(request)) {
+      await auth.protect();
+      return;
+    }
+
+    return NextResponse.next();
+  });
+
+  return middleware(request, event);
+}
 
 export const config = {
   matcher: [

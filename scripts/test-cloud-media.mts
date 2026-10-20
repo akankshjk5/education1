@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHiggsfieldProvider, HIGGSFIELD_MODEL, HiggsfieldError, type HiggsfieldProvider } from '../src/lib/cloud-lesson/higgsfield.ts';
-import { assertStorybookShots, translateContainerPaths, mediaAssetUrl, pickLessonMusic, runCloudMediaJob, type MediaJob, type MediaScene, type MediaShot, type CloudMediaStore, type CloudMediaRenderer } from '../src/lib/cloud-lesson/media-worker.ts';
+import { assertStorybookShots, downloadMedia, mediaAssetUrl, pickLessonMusic, runCloudMediaJob, translateContainerPaths, type MediaJob, type MediaScene, type MediaShot, type CloudMediaStore, type CloudMediaRenderer } from '../src/lib/cloud-lesson/media-worker.ts';
 
 const id = '11111111-1111-4111-8111-111111111111';
 const project = '22222222-2222-4222-8222-222222222222';
@@ -118,6 +118,37 @@ await test('source host/project and provider suffix restrictions', async () => {
   for (const bad of [valid.replace(project, id), valid.replace('example.supabase.co', 'evil.test'), valid + '?x=y']) assert.throws(() => mediaAssetUrl(bad, project, base));
   assert.throws(() => mediaAssetUrl('https://evilcloudfront.net/x.mp4', project, base, ['cloudfront.net']));
   assert.equal(mediaAssetUrl('https://cdn.higgs.ai/x.mp4?sig=ok', project, base, ['higgs.ai']).hostname, 'cdn.higgs.ai');
+});
+await test('media download streams response bytes to disk', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'cloud-media-download-'));
+  const path = join(dir, 'asset.mp4');
+  const chunks = [Buffer.from('media-'), Buffer.from('bytes')];
+  let index = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (index === chunks.length) controller.close();
+      else controller.enqueue(chunks[index++]);
+    },
+  });
+  const fetcher: typeof fetch = async () => new Response(body, { headers: { 'content-length': '11' } });
+  try {
+    await downloadMedia(new URL('https://cdn.higgs.ai/asset.mp4'), path, fetcher);
+    assert.deepEqual(await readFile(path), Buffer.concat(chunks));
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+await test('media download rejects an oversized response before writing', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'cloud-media-download-'));
+  const path = join(dir, 'asset.mp4');
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) { controller.close(); },
+  });
+  const fetcher: typeof fetch = async () => new Response(body, {
+    headers: { 'content-length': String(250 * 1024 * 1024 + 1) },
+  });
+  try {
+    await assert.rejects(downloadMedia(new URL('https://cdn.higgs.ai/asset.mp4'), path, fetcher), /size limit/);
+    await assert.rejects(readFile(path));
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
 await test('provider sends documented fixed five-second request and auth', async () => {
   const fake = (async (url: string | URL | Request, options?: RequestInit) => {

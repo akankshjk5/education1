@@ -78,7 +78,7 @@ export function DraftReview({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
       {/* ── The outline ─────────────────────────────────────────────────── */}
       <section className="min-w-0">
         <header className="mb-4">
@@ -95,7 +95,7 @@ export function DraftReview({
           {slides.map((slide) => (
             <li
               key={slide.number}
-              className="rounded-xl border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-neutral-900"
+              className="lm-card p-4"
             >
               <div className="flex items-baseline gap-2">
                 <span className="text-xs tabular-nums text-neutral-400">{slide.number}</span>
@@ -134,8 +134,8 @@ export function DraftReview({
       </section>
 
       {/* ── Cost, approval, and the conversation ────────────────────────── */}
-      <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
-        <div className="rounded-xl border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+      <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
+        <div className="lm-card p-4">
           <h3 className="text-sm font-semibold">Ready to build</h3>
 
           <dl className="mt-3 space-y-1.5 text-xs">
@@ -165,7 +165,7 @@ export function DraftReview({
                 if (result.error) setError(result.error);
               });
             }}
-            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-60"
+            className="lm-button-primary mt-3 w-full"
           >
             {approving ? (
               <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
@@ -181,7 +181,7 @@ export function DraftReview({
           </p>
         </div>
 
-        <div className="rounded-xl border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+        <div className="lm-card p-4">
           <h3 className="flex items-center gap-1.5 text-sm font-semibold">
             <MessageSquare className="h-3.5 w-3.5" strokeWidth={2} />
             Change something
@@ -218,14 +218,14 @@ export function DraftReview({
             disabled={busy}
             rows={3}
             placeholder="Add a slide on real-world uses. Drop slide 4. Make it simpler."
-            className="mt-3 w-full resize-none rounded-lg border border-black/10 bg-transparent px-2.5 py-2 text-xs leading-relaxed outline-none placeholder:text-neutral-400 focus:border-indigo-400 disabled:opacity-60 dark:border-white/10"
+            className="lm-field mt-3 resize-none text-xs leading-relaxed disabled:opacity-60"
           />
 
           <button
             type="button"
             disabled={busy || !instruction.trim()}
             onClick={revise}
-            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-black/10 px-3 py-1.5 text-xs font-medium transition-colors hover:bg-black/5 disabled:opacity-50 dark:border-white/10 dark:hover:bg-white/10"
+            className="lm-button-secondary lm-button-compact mt-2 w-full"
           >
             {revising ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
@@ -237,7 +237,7 @@ export function DraftReview({
         </div>
 
         {error ? (
-          <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">
+          <p role="alert" className="lm-alert lm-alert-error text-xs">
             {error}
           </p>
         ) : null}

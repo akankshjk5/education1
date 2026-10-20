@@ -15,9 +15,6 @@ import type { DeckStatus } from '@/lib/supabase/types';
  * until it finishes would strand them.
  */
 
-const buttonBase =
-  'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-60';
-
 export function DeckActions({
   deckId,
   deckTitle,
@@ -64,14 +61,14 @@ export function DeckActions({
               }
             })
           }
-          className={`${buttonBase} bg-red-600 text-white hover:bg-red-500`}
+          className="lm-button-danger lm-button-compact"
         >
           {pending ? 'Deleting…' : 'Delete'}
         </button>
         <button
           type="button"
           onClick={() => setConfirmingDelete(false)}
-          className={`${buttonBase} border border-black/10 hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/10`}
+          className="lm-button-secondary lm-button-compact"
         >
           Cancel
         </button>
@@ -86,7 +83,7 @@ export function DeckActions({
           type="button"
           onClick={download}
           disabled={downloading}
-          className={`${buttonBase} bg-indigo-600 text-white hover:bg-indigo-500`}
+          className="lm-button-primary lm-button-compact"
         >
           <Download className="h-3.5 w-3.5" strokeWidth={2} />
           {downloading ? 'Preparing…' : 'Download'}
@@ -104,7 +101,7 @@ export function DeckActions({
               setError(result.error);
             })
           }
-          className={`${buttonBase} border border-black/10 hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/10`}
+          className="lm-button-secondary lm-button-compact"
         >
           <RotateCw className="h-3.5 w-3.5" strokeWidth={2} />
           {status === 'failed' ? 'Try again' : 'Regenerate'}
@@ -118,7 +115,7 @@ export function DeckActions({
           setError(null);
           setConfirmingDelete(true);
         }}
-        className={`${buttonBase} ml-auto text-neutral-500 hover:bg-red-50 hover:text-red-600 dark:text-neutral-400 dark:hover:bg-red-500/10 dark:hover:text-red-400`}
+        className="lm-button-secondary lm-button-compact ml-auto text-red-700 hover:border-red-200 hover:bg-red-50 dark:text-red-300 dark:hover:border-red-400/30 dark:hover:bg-red-500/10"
       >
         <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
       </button>

@@ -5,11 +5,11 @@ import { after } from 'next/server';
 
 import type { Json } from '@/lib/supabase/types';
 import { requireUserId } from '@/lib/auth/session';
-import { isValidBoard } from '@/lib/boards';
 import { assertDeckOwner, createDeck, deleteDeck, uploadReferenceImage } from '@/lib/data/decks';
 import { startJob } from '@/lib/data/generation';
 import { checkBuildQuota, checkDeckQuota } from '@/lib/limits';
 import { runDeckDraft } from '@/lib/generation/run';
+import { presentationInputError } from '@/lib/presentation/input';
 import { isTemplateId, templateStyleSpec } from '@/lib/templates';
 import { referenceImageError } from '@/lib/uploads';
 
@@ -17,10 +17,10 @@ export type CreateDeckFormState = {
   error: string | null;
 };
 
-const GRADE_MIN = 1;
-const GRADE_MAX = 10;
-const SLIDE_COUNT_MIN = 4;
-const SLIDE_COUNT_MAX = 30;
+function formText(formData: FormData, name: string): string {
+  const value = formData.get(name);
+  return typeof value === 'string' ? value.trim() : '';
+}
 
 /**
  * Creates a deck from the "Create PPTX" form, stores the style reference image
@@ -37,16 +37,26 @@ export async function createDeckAction(
 ): Promise<CreateDeckFormState> {
   const userId = await requireUserId();
 
-  const topic = String(formData.get('topic') ?? '').trim();
-  const subject = String(formData.get('subject') ?? '').trim();
-  const board = String(formData.get('board') ?? '').trim();
-  const language = String(formData.get('language') ?? 'en').trim();
+  const topic = formText(formData, 'topic');
+  const chapter = formText(formData, 'chapter');
+  const subject = formText(formData, 'subject');
+  const board = formText(formData, 'board');
+  const language = formText(formData, 'language');
   const gradeLevelRaw = Number(formData.get('gradeLevel'));
   const slideCountRaw = Number(formData.get('slideCount'));
   const referenceImage = formData.get('referenceImage');
-  const templateRaw = String(formData.get('template') ?? '').trim();
+  const templateRaw = formText(formData, 'template');
 
-  if (!topic) return { error: 'Topic is required.' };
+  const inputError = presentationInputError({
+    topic,
+    chapter,
+    subject,
+    board,
+    language,
+    gradeLevel: gradeLevelRaw,
+    slideCount: slideCountRaw,
+  });
+  if (inputError) return { error: inputError };
 
   // Before anything is written or uploaded. A deck created and then refused a
   // build leaves a row and a reference image behind for the user to clean up,
@@ -76,19 +86,6 @@ export async function createDeckAction(
     const imageError = referenceImageError(referenceImage);
     if (imageError) return { error: imageError };
   }
-  if (!subject) return { error: 'Subject is required.' };
-  if (!isValidBoard(board)) return { error: 'Select a valid board.' };
-  if (!Number.isInteger(gradeLevelRaw) || gradeLevelRaw < GRADE_MIN || gradeLevelRaw > GRADE_MAX) {
-    return { error: `Class must be between ${GRADE_MIN} and ${GRADE_MAX}.` };
-  }
-  if (
-    !Number.isInteger(slideCountRaw) ||
-    slideCountRaw < SLIDE_COUNT_MIN ||
-    slideCountRaw > SLIDE_COUNT_MAX
-  ) {
-    return { error: `Number of slides must be between ${SLIDE_COUNT_MIN} and ${SLIDE_COUNT_MAX}.` };
-  }
-
   let deck;
   try {
     deck = await createDeck(userId, {
@@ -99,7 +96,7 @@ export async function createDeckAction(
       board,
       language,
       requested_slide_count: slideCountRaw,
-      source_prompt: `Class ${gradeLevelRaw} ${subject} (${board}): ${topic}`,
+      source_prompt: chapter ? `Chapter: ${chapter}` : null,
       // A template IS the deck's design system, already written out and
       // checked — so it goes straight into the column that holds one, rather
       // than being stored as a choice for a later stage to look up. The

@@ -11,6 +11,8 @@
     "smoke": "tsx --require ./scripts/allow-server-only.cjs scripts/smoke-agent.mts",
     "smoke:render": "tsx --require ./scripts/allow-server-only.cjs scripts/smoke-render.mts",
     "smoke:browser-layout": "tsx --require ./scripts/allow-server-only.cjs scripts/smoke-browser-layout.mts",
+    "test:presentation-input": "tsx scripts/test-presentation-input.mts",
+    "test:lesson-video-progress": "tsx scripts/test-lesson-video-progress.mts",
     "smoke:research": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/smoke-research.mts",
     "smoke:deck": "tsx --env-file=.env --require ./scripts/allow-server-only.cjs scripts/smoke-deck.mts",
     "smoke:cloud-skills": "tsx --require ./scripts/allow-server-only.cjs scripts/smoke-cloud-lesson-skills.mts",

@@ -11,9 +11,24 @@ export default async function CloudLessonsPage({ searchParams }: { searchParams:
   try { projects = await listCloudLessons(ownerId); }
   catch { setupError = 'Cloud lessons could not be loaded. Check that the cloud database migrations are applied and your session is connected.'; }
   const { lesson } = await searchParams;
-  return <div className="mx-auto max-w-7xl px-5 py-7 sm:px-8">
-    <header><p className="text-xs font-medium uppercase tracking-widest text-indigo-500">Classroom stories</p><h1 className="mt-2 flex items-center gap-2.5 text-2xl font-semibold tracking-tight"><Film className="h-6 w-6" />Lesson Video</h1><p className="mt-2 text-sm text-neutral-500">Turn a chapter topic into a clear, narrated 30- or 60-second lesson.</p></header>
-    <CloudLessonStudio initialProjects={projects} initialId={projects.some(p => p.id === lesson) ? lesson : undefined}
-      setupError={setupError} animationAllowance={30 * serverEnv.cloudLessonHiggsfieldUsdPerSecond} />
-  </div>;
+  return (
+    <div className="lm-page">
+      <header className="lm-page-header">
+        <p className="lm-eyebrow">Classroom stories</p>
+        <h1 className="lm-page-title flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-800 dark:bg-violet-300/10 dark:text-violet-200"><Film className="h-5 w-5" /></span>
+          Lesson Video
+        </h1>
+        <p className="lm-page-description">
+          Turn a curriculum topic into a short narrated video with a visual style chosen for your classroom.
+        </p>
+      </header>
+      <CloudLessonStudio
+        initialProjects={projects}
+        initialId={projects.some((project) => project.id === lesson) ? lesson : undefined}
+        setupError={setupError}
+        animationAllowance={30 * serverEnv.cloudLessonHiggsfieldUsdPerSecond}
+      />
+    </div>
+  );
 }

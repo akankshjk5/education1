@@ -28,7 +28,6 @@ export default async function AppLayout({ children }: LayoutProps<'/app'>) {
       themeToggle={<ThemeToggle initialTheme={theme} />}
       account={
         <UserButton
-          showName
           appearance={{
             elements: {
               userButtonBox: { flexDirection: 'row-reverse' },

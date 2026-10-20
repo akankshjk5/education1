@@ -1,9 +1,10 @@
 import 'server-only';
 
-import { auth, clerkClient } from '@clerk/nextjs/server';
+import { auth } from '@clerk/nextjs/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 import { publicEnv } from '@/lib/env';
+import { mintFreshSessionToken } from './session-token';
 import type { Database } from './database.types';
 
 /**
@@ -35,10 +36,7 @@ export async function createClient() {
  */
 export function createClientWithFreshSessionToken(sessionId: string) {
   return createSupabaseClient<Database>(publicEnv.supabaseUrl, publicEnv.supabaseAnonKey, {
-    accessToken: async () => {
-      const clerk = await clerkClient();
-      return (await clerk.sessions.getToken(sessionId)).jwt;
-    },
+    accessToken: async () => mintFreshSessionToken(sessionId),
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }

@@ -53,8 +53,8 @@ export default async function DeckPage({ params }: PageProps<'/app/decks/[deckId
     const cost = estimateDeckCost(draft.plan.slides.length);
 
     return (
-      <div className="px-8 py-6">
-        <header className="mb-5">
+      <div className="lm-page">
+        <header>
           <Link
             href="/app"
             className="inline-flex items-center gap-1.5 text-xs text-neutral-500 transition-colors hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
@@ -62,7 +62,7 @@ export default async function DeckPage({ params }: PageProps<'/app/decks/[deckId
             <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} />
             Decks
           </Link>
-          <h1 className="mt-1 truncate text-xl font-bold">{deck.title}</h1>
+          <h1 className="lm-page-title truncate">{deck.title}</h1>
           <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
             Outline ready — review it before the deck is built
           </p>
@@ -95,8 +95,8 @@ export default async function DeckPage({ params }: PageProps<'/app/decks/[deckId
   const view = toDeckView(deck, deck.slides);
 
   return (
-    <div className="px-8 py-6">
-      <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
+    <div className="lm-page">
+      <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <Link
             href="/app"
@@ -105,7 +105,7 @@ export default async function DeckPage({ params }: PageProps<'/app/decks/[deckId
             <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} />
             Decks
           </Link>
-          <h1 className="mt-1 truncate text-xl font-bold">{deck.title}</h1>
+          <h1 className="lm-page-title truncate">{deck.title}</h1>
           <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
             {view.slides.length} slide{view.slides.length === 1 ? '' : 's'}
             {deck.status === 'generating' ? ' · still building' : ''}

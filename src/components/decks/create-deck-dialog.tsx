@@ -6,6 +6,14 @@ import { FileOutput, Upload, X } from 'lucide-react';
 import { createDeckAction, type CreateDeckFormState } from '@/lib/actions/decks';
 import { DEFAULT_BOARD, INDIAN_BOARDS } from '@/lib/boards';
 import {
+  MAX_PRESENTATION_CHAPTER_LENGTH,
+  MAX_PRESENTATION_TOPIC_LENGTH,
+  PRESENTATION_GRADES,
+  PRESENTATION_LANGUAGES,
+  PRESENTATION_SLIDE_COUNTS,
+  PRESENTATION_SUBJECTS,
+} from '@/lib/presentation/input';
+import {
   DECK_TEMPLATES,
   DEFAULT_TEMPLATE_ID,
   TEMPLATE_IDS,
@@ -14,26 +22,9 @@ import {
 } from '@/lib/templates';
 import { formatBytes, MAX_REFERENCE_IMAGE_BYTES, referenceImageError } from '@/lib/uploads';
 
-const GRADES = Array.from({ length: 10 }, (_, i) => i + 1);
-const SUBJECTS = [
-  'Mathematics',
-  'Science',
-  'Social Science',
-  'English',
-  'Hindi',
-  'EVS',
-  'Computer Science',
-];
-const SLIDE_COUNTS = [6, 8, 10, 12, 15, 20];
-const LANGUAGES = [
-  { value: 'en', label: 'English' },
-  { value: 'hi', label: 'Hindi' },
-];
-
 const initialState: CreateDeckFormState = { error: null };
 
-const fieldClasses =
-  'w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-indigo-500 dark:border-white/10 dark:bg-neutral-900';
+const fieldClasses = 'lm-field';
 
 /** Extensions the server accepts, keyed by the MIME type a paste carries. */
 const PASTE_EXTENSIONS: Record<string, string> = {
@@ -227,10 +218,10 @@ export function CreateDeckDialog() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex items-center gap-2 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 active:bg-indigo-700"
+        className="lm-button-primary"
       >
         <FileOutput className="h-4 w-4" strokeWidth={2} />
-        Create PPTX
+        Create presentation
       </button>
 
       {open ? (
@@ -238,12 +229,12 @@ export function CreateDeckDialog() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="create-deck-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 px-4 py-5 backdrop-blur-sm"
         >
-          <div className="w-full max-w-md rounded-xl border border-black/10 bg-white p-5 shadow-xl dark:border-white/10 dark:bg-neutral-900">
+          <div className="lm-card max-h-[90dvh] w-full max-w-xl overflow-y-auto p-5 shadow-2xl sm:p-6">
             <div className="flex items-center justify-between">
               <h2 id="create-deck-title" className="text-base font-semibold">
-                Create a PPTX
+                Create a presentation
               </h2>
               <button
                 type="button"
@@ -255,12 +246,12 @@ export function CreateDeckDialog() {
               </button>
             </div>
 
-            <form ref={formRef} action={formAction} className="mt-4 flex flex-col gap-3.5">
-              <div className="grid grid-cols-2 gap-3.5">
+            <form ref={formRef} action={formAction} className="mt-4 flex flex-col gap-4">
+              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
                 <label className="flex flex-col gap-1.5 text-sm font-medium">
                   Class
                   <select name="gradeLevel" required defaultValue={8} className={fieldClasses}>
-                    {GRADES.map((grade) => (
+                    {PRESENTATION_GRADES.map((grade) => (
                       <option key={grade} value={grade}>
                         Class {grade}
                       </option>
@@ -274,7 +265,7 @@ export function CreateDeckDialog() {
                     <option value="" disabled>
                       Select subject
                     </option>
-                    {SUBJECTS.map((subject) => (
+                    {PRESENTATION_SUBJECTS.map((subject) => (
                       <option key={subject} value={subject}>
                         {subject}
                       </option>
@@ -296,7 +287,7 @@ export function CreateDeckDialog() {
                 <label className="flex flex-col gap-1.5 text-sm font-medium">
                   Language
                   <select name="language" required defaultValue="en" className={fieldClasses}>
-                    {LANGUAGES.map(({ value, label }) => (
+                    {PRESENTATION_LANGUAGES.map(({ value, label }) => (
                       <option key={value} value={value}>
                         {label}
                       </option>
@@ -307,7 +298,7 @@ export function CreateDeckDialog() {
                 <label className="flex flex-col gap-1.5 text-sm font-medium">
                   Slides
                   <select name="slideCount" required defaultValue={10} className={fieldClasses}>
-                    {SLIDE_COUNTS.map((count) => (
+                    {PRESENTATION_SLIDE_COUNTS.map((count) => (
                       <option key={count} value={count}>
                         {count} slides
                       </option>
@@ -322,7 +313,19 @@ export function CreateDeckDialog() {
                   type="text"
                   name="topic"
                   required
+                  maxLength={MAX_PRESENTATION_TOPIC_LENGTH}
                   placeholder="e.g. Photosynthesis in plants"
+                  className={fieldClasses}
+                />
+              </label>
+
+              <label className="flex flex-col gap-1.5 text-sm font-medium">
+                Chapter <span className="font-normal text-neutral-500">(optional)</span>
+                <input
+                  type="text"
+                  name="chapter"
+                  maxLength={MAX_PRESENTATION_CHAPTER_LENGTH}
+                  placeholder="e.g. Chapter 4: Life Processes"
                   className={fieldClasses}
                 />
               </label>
@@ -478,7 +481,7 @@ export function CreateDeckDialog() {
               </div>
 
               {state.error ? (
-                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-400">
+                <p role="alert" className="lm-alert lm-alert-error">
                   {state.error}
                 </p>
               ) : null}
@@ -487,14 +490,14 @@ export function CreateDeckDialog() {
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
-                  className="rounded-lg px-3.5 py-2 text-sm font-medium text-neutral-600 hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/10"
+                  className="lm-button-secondary"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={pending}
-                  className="rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-60"
+                  className="lm-button-primary"
                 >
                   {pending ? 'Creating…' : 'Create'}
                 </button>

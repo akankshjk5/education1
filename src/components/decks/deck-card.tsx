@@ -65,7 +65,7 @@ export function DeckCard({
   const preview = cover ? toDeckView(deck, [cover]) : null;
 
   return (
-    <article className="group overflow-hidden rounded-xl border border-black/10 bg-white transition-shadow hover:shadow-md dark:border-white/10 dark:bg-neutral-900">
+    <article className="lm-card group overflow-hidden transition-shadow hover:shadow-md">
       <Link href={`/app/decks/${deck.id}`} className="block" aria-label={`Open ${deck.title}`}>
         {preview?.slides[0] ? (
           <SlideCanvas
@@ -111,7 +111,7 @@ export function DeckCard({
 
         <div className="mt-3 flex items-center justify-between">
           <span className="text-xs text-neutral-500 dark:text-neutral-400">
-            Viewed {relativeTime(deck.updated_at)}
+            Updated {relativeTime(deck.updated_at)}
           </span>
         </div>
       </div>

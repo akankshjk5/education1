@@ -108,6 +108,9 @@ function briefFor(deck: DeckRequest): string {
     `Create a ${deck.subject ?? 'classroom'} presentation on: ${deck.topic ?? deck.title}`,
     `Audience: ${audience}.`,
     `Language: ${deck.language}.`,
+    ...(deck.source_prompt?.startsWith('Chapter: ')
+      ? [`Chapter context: ${deck.source_prompt.slice('Chapter: '.length)}.`]
+      : []),
     deck.requested_slide_count
       ? `Target length: ${deck.requested_slide_count} slides.`
       : 'Target length: choose what the topic needs.',
